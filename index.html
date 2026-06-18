@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vault Fix | Electrician Hub</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fb;
+        --surface: #ffffff;
+        --text: #1f2937;
+        --muted: #4b5563;
+        --primary: #0f766e;
+        --accent: #f59e0b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      .hero {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 2rem 1rem;
+      }
+
+      .card {
+        width: min(860px, 100%);
+        background: var(--surface);
+        border-radius: 16px;
+        padding: 2.5rem 2rem;
+        box-shadow: 0 16px 40px rgba(15, 118, 110, 0.15);
+      }
+
+      h1 {
+        margin-top: 0;
+        margin-bottom: 0.75rem;
+        font-size: clamp(2rem, 4vw, 3rem);
+        color: var(--primary);
+      }
+
+      .tagline {
+        margin: 0 0 1.5rem;
+        color: var(--muted);
+        font-size: 1.125rem;
+      }
+
+      .pillars {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1rem;
+        margin: 0 0 1.75rem;
+        padding: 0;
+        list-style: none;
+      }
+
+      .pillars li {
+        background: #ecfeff;
+        border: 1px solid #a5f3fc;
+        border-radius: 12px;
+        padding: 1rem;
+      }
+
+      .pillars strong {
+        color: #155e75;
+        display: block;
+        margin-bottom: 0.35rem;
+      }
+
+      .cta {
+        display: inline-block;
+        background: var(--primary);
+        color: white;
+        text-decoration: none;
+        padding: 0.75rem 1.1rem;
+        border-radius: 10px;
+        font-weight: 600;
+      }
+
+      .cta:hover,
+      .cta:focus {
+        background: #115e59;
+      }
+
+      .note {
+        margin-top: 0.8rem;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      .note span {
+        color: var(--accent);
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="hero">
+      <section class="card" aria-labelledby="vault-fix-title">
+        <h1 id="vault-fix-title">Vault Fix</h1>
+        <p class="tagline">
+          A trusted hub where customers find qualified electricians, and electricians discover paid opportunities to render their services.
+        </p>
+
+        <ul class="pillars">
+          <li>
+            <strong>For Homeowners & Businesses</strong>
+            Find verified electricians ready to handle repairs, installations, and emergency fixes.
+          </li>
+          <li>
+            <strong>For Electricians</strong>
+            Connect with clients, find employment opportunities, and grow your service network.
+          </li>
+          <li>
+            <strong>Built for Trust</strong>
+            Clear profiles, straightforward requests, and a focused community for reliable electrical work.
+          </li>
+        </ul>
+
+        <a class="cta" href="#" aria-label="Join Vault Fix waitlist">Join the waitlist</a>
+        <p class="note"><span>More to come:</span> this is the first landing page for Vault Fix.</p>
+      </section>
+    </main>
+  </body>
+</html>
