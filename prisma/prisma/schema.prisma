@@ -1,0 +1,236 @@
+// VaultFix - Full Data Model
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────
+
+enum Role {
+  CLIENT
+  ELECTRICIAN
+  ADMIN
+}
+
+enum FaultPriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum FaultStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum JobStatus {
+  PENDING
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum CertType {
+  COC              // Certificate of Compliance
+  WIREMAN_LICENSE
+  NTA_VERIFIED
+}
+
+enum SubscriptionPlan {
+  FREE
+  CLIENT_PRO
+  ELECTRICIAN_PRO
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  TRIALING
+}
+
+// ─── Models ───────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  phone     String?
+  role      Role     @default(CLIENT)
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  electricianProfile ElectricianProfile?
+  faultReports       FaultReport[]       @relation("ReporterFaults")
+  jobsAsClient       Job[]               @relation("ClientJobs")
+  reviewsGiven       Review[]            @relation("ReviewsGiven")
+  receipts           Receipt[]
+  subscription       Subscription?
+
+  @@map("users")
+}
+
+model ElectricianProfile {
+  id             String  @id @default(cuid())
+  userId         String  @unique
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ntaUid         String? @unique
+  ntaVerified    Boolean @default(false)
+  wiremanLicense String? // licence number
+  wiremanVerified Boolean @default(false)
+  specialisation String?
+  serviceArea    String?
+  calloutFee     Float?
+  bio            String?
+  isAvailable    Boolean @default(true)
+  averageRating  Float?
+  totalReviews   Int     @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  certificates Certificate[]
+  jobsAssigned Job[]          @relation("ElectricianJobs")
+  reviewsReceived Review[]    @relation("ReviewsReceived")
+
+  @@map("electrician_profiles")
+}
+
+model Location {
+  id          String   @id @default(cuid())
+  building    String
+  room        String
+  description String?
+  qrUrl       String?  // URL embedded in the QR code
+  createdAt   DateTime @default(now())
+
+  faultReports FaultReport[]
+
+  @@map("locations")
+}
+
+model FaultReport {
+  id          String        @id @default(cuid())
+  ref         String        @unique @default(cuid()) // e.g. VF-XXXXXX
+  description String
+  priority    FaultPriority @default(MEDIUM)
+  status      FaultStatus   @default(OPEN)
+  locationId  String?
+  location    Location?     @relation(fields: [locationId], references: [id])
+  reporterId  String?
+  reporter    User?         @relation("ReporterFaults", fields: [reporterId], references: [id])
+  reporterName String?      // for anonymous reports
+  photoUrls   String[]      @default([])
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  job Job?
+
+  @@map("fault_reports")
+}
+
+model Job {
+  id            String    @id @default(cuid())
+  faultId       String    @unique
+  fault         FaultReport @relation(fields: [faultId], references: [id])
+  clientId      String
+  client        User      @relation("ClientJobs", fields: [clientId], references: [id])
+  electricianId String
+  electrician   ElectricianProfile @relation("ElectricianJobs", fields: [electricianId], references: [id])
+  status        JobStatus @default(PENDING)
+  scheduledAt   DateTime?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  receipt Receipt?
+  review  Review?
+
+  @@map("jobs")
+}
+
+model Certificate {
+  id             String    @id @default(cuid())
+  ref            String    @unique
+  type           CertType
+  electricianId  String
+  electrician    ElectricianProfile @relation(fields: [electricianId], references: [id])
+  clientName     String?
+  propertyAddress String?
+  propertyType   String?
+  workDescription String?
+  inspectionDate DateTime?
+  signatureDataUrl String? // base64 canvas signature
+  pdfUrl         String?   // stored PDF URL (Supabase Storage)
+  issuedAt       DateTime  @default(now())
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@map("certificates")
+}
+
+model Review {
+  id            String   @id @default(cuid())
+  jobId         String   @unique
+  job           Job      @relation(fields: [jobId], references: [id])
+  reviewerId    String
+  reviewer      User     @relation("ReviewsGiven", fields: [reviewerId], references: [id])
+  electricianId String
+  electrician   ElectricianProfile @relation("ReviewsReceived", fields: [electricianId], references: [id])
+  rating        Int      // 1–5
+  comment       String?
+  createdAt     DateTime @default(now())
+
+  @@map("reviews")
+}
+
+model Receipt {
+  id           String   @id @default(cuid())
+  ref          String   @unique
+  jobId        String   @unique
+  job          Job      @relation(fields: [jobId], references: [id])
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  lineItems    Json     // Array of { desc: string, amount: number }
+  totalAmount  Float
+  currency     String   @default("NAD")
+  pdfUrl       String?
+  signedByClient     Boolean @default(false)
+  signedByElectrician Boolean @default(false)
+  issuedAt     DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@map("receipts")
+}
+
+model Subscription {
+  id        String             @id @default(cuid())
+  userId    String             @unique
+  user      User               @relation(fields: [userId], references: [id])
+  plan      SubscriptionPlan   @default(FREE)
+  status    SubscriptionStatus @default(ACTIVE)
+  startedAt DateTime           @default(now())
+  renewsAt  DateTime?
+  cancelledAt DateTime?
+  externalId String?           // Payment provider ID (DPO Pay / Stripe)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@map("subscriptions")
+}
