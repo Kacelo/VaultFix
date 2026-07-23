@@ -76,7 +76,7 @@ export default function LoginPage() {
             Welcome back
           </h1>
           <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
-            Sign in to your VaultFix account
+            Sign in to your FaultFx account
           </p>
         </div>
 

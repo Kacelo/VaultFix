@@ -17,7 +17,7 @@ const outfit = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: "VaultFix | Namibia's Trusted Electrician Hub",
+  title: "FaultFx | Namibia's Trusted Electrician Hub",
   description:
     "Connect with NTA-verified electricians, log faults instantly with QR codes, generate Certificates of Compliance, and manage electrical services across Namibia.",
   keywords: [
@@ -26,14 +26,14 @@ export const metadata: Metadata = {
     "NTA certified",
     "certificate of compliance",
     "electrical services Namibia",
-    "VaultFix",
+    "FaultFx",
   ],
   openGraph: {
-    title: "VaultFix | Namibia's Trusted Electrician Hub",
+    title: "FaultFx | Namibia's Trusted Electrician Hub",
     description:
       "The smart platform for verified electricians and clients to connect, report faults, and manage compliance.",
     url: "https://faultfix.com.na",
-    siteName: "VaultFix",
+    siteName: "FaultFx",
     locale: "en_NA",
     type: "website",
   },

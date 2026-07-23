@@ -105,7 +105,7 @@ export default function LocationFaultPage() {
         </Link>
 
         <p style={{ marginTop: "1.25rem", fontSize: "0.8rem", color: "var(--text-subtle)" }}>
-          Powered by <span style={{ color: "var(--teal-400)", fontWeight: 600 }}>VaultFix</span>
+          Powered by <span style={{ color: "var(--teal-400)", fontWeight: 600 }}>FaultFx</span>
         </p>
       </div>
     </section>

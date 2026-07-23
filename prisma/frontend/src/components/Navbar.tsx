@@ -27,9 +27,7 @@ export function Navbar() {
         top: 0,
         zIndex: 50,
         transition: "background 0.3s, border-color 0.3s, backdrop-filter 0.3s",
-        background: scrolled
-          ? "rgba(10,22,40,0.9)"
-          : "transparent",
+        background: scrolled ? "rgba(10,22,40,0.9)" : "transparent",
         backdropFilter: scrolled ? "blur(20px)" : "none",
         WebkitBackdropFilter: scrolled ? "blur(20px)" : "none",
         borderBottom: scrolled
@@ -47,7 +45,11 @@ export function Navbar() {
           }}
         >
           {/* Logo */}
-          <Link href="/" id="nav-logo" style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}>
+          <Link
+            href="/"
+            id="nav-logo"
+            style={{ display: "flex", alignItems: "center", gap: "0.625rem" }}
+          >
             <div
               style={{
                 width: 36,
@@ -74,7 +76,7 @@ export function Navbar() {
                 letterSpacing: "-0.02em",
               }}
             >
-              Vault<span style={{ color: "var(--teal-400)" }}>Fix</span>
+              Fault<span style={{ color: "var(--teal-400)" }}>Fx</span>
             </span>
           </Link>
 
@@ -102,12 +104,16 @@ export function Navbar() {
                     display: "block",
                   }}
                   onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLElement).style.color = "var(--text)";
-                    (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.06)";
+                    (e.currentTarget as HTMLElement).style.color =
+                      "var(--text)";
+                    (e.currentTarget as HTMLElement).style.background =
+                      "rgba(255,255,255,0.06)";
                   }}
                   onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLElement).style.color = "var(--text-muted)";
-                    (e.currentTarget as HTMLElement).style.background = "transparent";
+                    (e.currentTarget as HTMLElement).style.color =
+                      "var(--text-muted)";
+                    (e.currentTarget as HTMLElement).style.background =
+                      "transparent";
                   }}
                 >
                   {link.label}
@@ -117,11 +123,22 @@ export function Navbar() {
           </ul>
 
           {/* Auth buttons */}
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }} className="hide-mobile">
-            <Link href="/login" className="btn-outline" style={{ padding: "0.5rem 1.25rem", fontSize: "0.875rem" }}>
+          <div
+            style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}
+            className="hide-mobile"
+          >
+            <Link
+              href="/login"
+              className="btn-outline"
+              style={{ padding: "0.5rem 1.25rem", fontSize: "0.875rem" }}
+            >
               Log in
             </Link>
-            <Link href="/register" className="btn-primary" style={{ padding: "0.5rem 1.25rem", fontSize: "0.875rem" }}>
+            <Link
+              href="/register"
+              className="btn-primary"
+              style={{ padding: "0.5rem 1.25rem", fontSize: "0.875rem" }}
+            >
               Get Started
             </Link>
           </div>
@@ -142,12 +159,26 @@ export function Navbar() {
             className="show-mobile"
           >
             {menuOpen ? (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />
               </svg>
             ) : (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <line x1="3" y1="12" x2="21" y2="12" />
                 <line x1="3" y1="6" x2="21" y2="6" />
                 <line x1="3" y1="18" x2="21" y2="18" />
@@ -165,7 +196,15 @@ export function Navbar() {
               paddingBottom: "1rem",
             }}
           >
-            <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "0.25rem", paddingTop: "0.75rem" }}>
+            <ul
+              style={{
+                listStyle: "none",
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.25rem",
+                paddingTop: "0.75rem",
+              }}
+            >
               {navLinks.map((link) => (
                 <li key={link.href}>
                   <Link
@@ -184,11 +223,26 @@ export function Navbar() {
                 </li>
               ))}
             </ul>
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.625rem", marginTop: "1rem" }}>
-              <Link href="/login" className="btn-outline" style={{ textAlign: "center", justifyContent: "center" }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.625rem",
+                marginTop: "1rem",
+              }}
+            >
+              <Link
+                href="/login"
+                className="btn-outline"
+                style={{ textAlign: "center", justifyContent: "center" }}
+              >
                 Log in
               </Link>
-              <Link href="/register" className="btn-primary" style={{ textAlign: "center", justifyContent: "center" }}>
+              <Link
+                href="/register"
+                className="btn-primary"
+                style={{ textAlign: "center", justifyContent: "center" }}
+              >
                 Get Started
               </Link>
             </div>

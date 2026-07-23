@@ -1,4 +1,4 @@
-// VaultFix - Full Data Model
+// FaultFx - Full Data Model
 // Learn more: https://pris.ly/d/prisma-schema
 
 generator client {

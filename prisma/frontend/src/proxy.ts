@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
- * VaultFix Proxy (Next.js 16 "middleware" replacement).
+ * FaultFx Proxy (Next.js 16 "middleware" replacement).
  * - Refreshes Supabase session on every request.
  * - Protects /dashboard and /admin routes.
  * - Gracefully passes through when Supabase is not yet configured.

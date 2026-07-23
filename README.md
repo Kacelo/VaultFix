@@ -1,6 +1,6 @@
-# VaultFix
+# FaultFx
 
-A starter landing page for Vault Fix: a hub where customers can find qualified electricians and electricians can find employment opportunities.
+A starter landing page for FaultFx: a hub where customers can find qualified electricians and electricians can find employment opportunities.
 
 ## Local preview
 

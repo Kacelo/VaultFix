@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 
-
 const footerLinks = {
   Platform: [
     { href: "/technicians", label: "Find Electricians" },
@@ -11,7 +10,7 @@ const footerLinks = {
     { href: "/pricing", label: "Pricing" },
   ],
   Resources: [
-    { href: "/about", label: "About VaultFix" },
+    { href: "/about", label: "About FaultFx" },
     { href: "/admin/qr-codes", label: "QR Code Generator" },
     { href: "/receipts", label: "Digital Receipts" },
     { href: "/reviews", label: "Reviews" },
@@ -54,7 +53,15 @@ export function Footer() {
         >
           {/* Brand column */}
           <div style={{ gridColumn: "span 1" }}>
-            <Link href="/" style={{ display: "flex", alignItems: "center", gap: "0.625rem", marginBottom: "1rem" }}>
+            <Link
+              href="/"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.625rem",
+                marginBottom: "1rem",
+              }}
+            >
               <div
                 style={{
                   width: 36,
@@ -72,16 +79,37 @@ export function Footer() {
               >
                 V
               </div>
-              <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "1.1rem" }}>
-                Vault<span style={{ color: "var(--teal-400)" }}>Fix</span>
+              <span
+                style={{
+                  fontFamily: "var(--font-display)",
+                  fontWeight: 700,
+                  fontSize: "1.1rem",
+                }}
+              >
+                Fault<span style={{ color: "var(--teal-400)" }}>Fx</span>
               </span>
             </Link>
-            <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", lineHeight: 1.7, marginBottom: "1.25rem", maxWidth: "220px" }}>
-              Namibia&apos;s trusted hub for verified electricians and smart fault management.
+            <p
+              style={{
+                color: "var(--text-muted)",
+                fontSize: "0.875rem",
+                lineHeight: 1.7,
+                marginBottom: "1.25rem",
+                maxWidth: "220px",
+              }}
+            >
+              Namibia&apos;s trusted hub for verified electricians and smart
+              fault management.
             </p>
 
             {/* Trust badges */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "0.5rem",
+              }}
+            >
               {trustBadges.map((badge) => (
                 <div
                   key={badge.abbr}
@@ -133,7 +161,14 @@ export function Footer() {
               >
                 {category}
               </h4>
-              <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: "0.625rem" }}>
+              <ul
+                style={{
+                  listStyle: "none",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.625rem",
+                }}
+              >
                 {links.map((link) => (
                   <li key={link.href}>
                     <Link
@@ -144,8 +179,14 @@ export function Footer() {
                         transition: "color 0.2s",
                         display: "inline-block",
                       }}
-                      onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--teal-400)")}
-                      onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "var(--text-muted)")}
+                      onMouseEnter={(e) =>
+                        ((e.currentTarget as HTMLElement).style.color =
+                          "var(--teal-400)")
+                      }
+                      onMouseLeave={(e) =>
+                        ((e.currentTarget as HTMLElement).style.color =
+                          "var(--text-muted)")
+                      }
                     >
                       {link.label}
                     </Link>
@@ -168,11 +209,13 @@ export function Footer() {
           }}
         >
           <p style={{ color: "var(--text-subtle)", fontSize: "0.8125rem" }}>
-            © {year} VaultFix. All rights reserved. Built for Namibia 🇳🇦
+            © {year} FaultFx. All rights reserved. Built for Namibia 🇳🇦
           </p>
           <p style={{ color: "var(--text-subtle)", fontSize: "0.8125rem" }}>
             Powered by{" "}
-            <span style={{ color: "var(--teal-500)", fontWeight: 600 }}>VaultFix Technologies</span>
+            <span style={{ color: "var(--teal-500)", fontWeight: 600 }}>
+              FaultFx Technologies
+            </span>
           </p>
         </div>
       </div>

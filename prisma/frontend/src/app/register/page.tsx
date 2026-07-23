@@ -178,7 +178,7 @@ function RegisterForm() {
           <h1 style={{ fontFamily: "var(--font-display)", fontSize: "1.625rem", fontWeight: 800, marginBottom: "0.25rem" }}>
             Create your account
           </h1>
-          <p style={{ color: "var(--text-muted)", fontSize: "0.875rem" }}>Join VaultFix today</p>
+          <p style={{ color: "var(--text-muted)", fontSize: "0.875rem" }}>Join FaultFx today</p>
         </div>
 
         {/* Step progress */}

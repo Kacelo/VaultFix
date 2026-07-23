@@ -65,7 +65,7 @@ export default function QRCodeGeneratorPage() {
     if (!generated) return;
     const a = document.createElement("a");
     a.href = generated;
-    a.download = "vaultfix-qr.png";
+    a.download = "faultfx-qr.png";
     a.click();
   }
 

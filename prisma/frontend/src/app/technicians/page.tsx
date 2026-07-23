@@ -89,7 +89,7 @@ export default function TechniciansPage() {
             Find a Verified Electrician
           </h1>
           <p style={{ color: "var(--text-muted)", fontSize: "1rem", maxWidth: 540 }}>
-            All electricians on VaultFix are cross-checked against the NTA database. Browse by specialisation or location.
+            All electricians on FaultFx are cross-checked against the NTA database. Browse by specialisation or location.
           </p>
         </div>
 

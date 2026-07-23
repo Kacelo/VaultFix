@@ -275,7 +275,7 @@ export default function HomePage() {
               Everything in one platform
             </h2>
             <p style={{ color: "var(--text-muted)", fontSize: "1.0625rem", maxWidth: 520, margin: "0 auto" }}>
-              VaultFix brings together fault reporting, certified technicians, compliance documents, and digital receipts.
+              FaultFx brings together fault reporting, certified technicians, compliance documents, and digital receipts.
             </p>
           </div>
 
