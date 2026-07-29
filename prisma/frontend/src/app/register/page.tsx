@@ -2,6 +2,8 @@
 
 import { useState, FormEvent, Suspense } from "react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import { syncUserProfile } from "@/lib/supabase/actions";
 
 type Role = "client" | "electrician";
 type Step = 1 | 2 | 3;
@@ -87,6 +89,7 @@ function RegisterForm() {
   const [role, setRole] = useState<Role>("client");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [confirmationSent, setConfirmationSent] = useState(false);
 
   // Step 1 fields
   const [name, setName] = useState("");
@@ -119,13 +122,62 @@ function RegisterForm() {
     }
     setLoading(true);
     setError("");
-    try {
-      await new Promise((r) => setTimeout(r, 1200)); // mock Supabase signUp
-      window.location.href = "/dashboard";
-    } catch {
-      setError("Registration failed. Please try again.");
-    } finally {
+
+    const supabase = createClient();
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        data: {
+          full_name: name,
+          phone,
+          role: role.toUpperCase(),
+          ...(role === "electrician" && {
+            nta_uid: ntaUid,
+            specialisation,
+            service_area: location,
+          }),
+        },
+      },
+    });
+
+    if (signUpError || !data.user) {
       setLoading(false);
+      setError(signUpError?.message ?? "Registration failed. Please try again.");
+      return;
+    }
+
+    try {
+      await syncUserProfile({
+        userId: data.user.id,
+        email,
+        name,
+        phone,
+        role: role === "electrician" ? "ELECTRICIAN" : "CLIENT",
+        ...(role === "electrician" && {
+          ntaUid,
+          specialisation,
+          serviceArea: location,
+        }),
+      });
+    } catch (syncError) {
+      setLoading(false);
+      setError(
+        syncError instanceof Error
+          ? syncError.message
+          : "Your account was created, but saving your profile failed. Please contact support."
+      );
+      return;
+    }
+
+    setLoading(false);
+
+    if (data.session) {
+      window.location.href = "/dashboard";
+    } else {
+      // Email confirmation required before a session is issued
+      setConfirmationSent(true);
     }
   }
 
@@ -134,6 +186,40 @@ function RegisterForm() {
     role === "electrician"
       ? ["Basic Info", "Certification", "Confirm"]
       : ["Basic Info", "Confirm"];
+
+  if (confirmationSent) {
+    return (
+      <div
+        style={{
+          minHeight: "calc(100dvh - 68px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "2rem 1.5rem",
+          background: "var(--grad-hero)",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        <div aria-hidden style={{ position: "absolute", inset: 0, background: "var(--grad-glow)", pointerEvents: "none" }} />
+        <div
+          className="glass animate-fade-up"
+          style={{ width: "100%", maxWidth: 440, padding: "2.5rem 2rem", position: "relative", textAlign: "center" }}
+        >
+          <div style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>📬</div>
+          <h1 style={{ fontFamily: "var(--font-display)", fontSize: "1.5rem", fontWeight: 800, marginBottom: "0.75rem" }}>
+            Check your email
+          </h1>
+          <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
+            We sent a confirmation link to <strong style={{ color: "var(--text)" }}>{email}</strong>. Click it to activate your FaultFx account.
+          </p>
+          <p style={{ marginTop: "1.5rem", fontSize: "0.875rem" }}>
+            <Link href="/login" style={{ color: "var(--teal-400)", fontWeight: 600 }}>Back to sign in</Link>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

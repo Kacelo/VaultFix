@@ -66,7 +66,7 @@ export function Navbar() {
                 boxShadow: "0 0 20px rgba(20,184,166,0.3)",
               }}
             >
-              V
+              F
             </div>
             <span
               style={{
