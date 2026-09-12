@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FaultFx Progress Report</title>
+<style>
+  :root {
+    --ground: #F6F8F8;
+    --surface: #FFFFFF;
+    --sunken: #EDF2F1;
+    --ink: #12211F;
+    --ink-muted: #526462;
+    --ink-faint: #7A8A88;
+    --line: #DAE3E1;
+    --line-strong: #C3D0CE;
+    --accent: #0D7A6F;
+    --accent-soft: #E0EFEC;
+    --amber: #90590A;
+    --amber-soft: #F6EEDF;
+    --grey-chip: #E7ECEB;
+    --shadow: 0 1px 2px rgba(18, 33, 31, 0.05);
+
+    --display: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    --body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0E1615;
+      --surface: #151F1E;
+      --sunken: #1B2726;
+      --ink: #E7EEED;
+      --ink-muted: #A0B0AE;
+      --ink-faint: #7C8C8A;
+      --line: #253331;
+      --line-strong: #33443F;
+      --accent: #4CC0AE;
+      --accent-soft: #16302C;
+      --amber: #DBA455;
+      --amber-soft: #2E2517;
+      --grey-chip: #22302E;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0E1615;
+    --surface: #151F1E;
+    --sunken: #1B2726;
+    --ink: #E7EEED;
+    --ink-muted: #A0B0AE;
+    --ink-faint: #7C8C8A;
+    --line: #253331;
+    --line-strong: #33443F;
+    --accent: #4CC0AE;
+    --accent-soft: #16302C;
+    --amber: #DBA455;
+    --amber-soft: #2E2517;
+    --grey-chip: #22302E;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.65;
+    margin: 0;
+    padding: clamp(2rem, 5vw, 4.5rem) clamp(1.1rem, 4vw, 2rem) 5rem;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 44rem;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3.25rem;
+  }
+
+  /* ---------- Masthead ---------- */
+
+  .masthead { display: flex; flex-direction: column; gap: 0.9rem; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0;
+  }
+
+  h1 {
+    font-family: var(--display);
+    font-size: clamp(2rem, 5.5vw, 2.9rem);
+    line-height: 1.12;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .standfirst {
+    font-size: 1.08rem;
+    color: var(--ink-muted);
+    max-width: 34rem;
+    margin: 0;
+    text-wrap: pretty;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.4rem;
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--ink-faint);
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--line);
+    margin: 0;
+  }
+
+  /* ---------- Status board ---------- */
+
+  .board {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .tile {
+    background: var(--surface);
+    padding: 1.15rem 1.15rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .tile .figure {
+    font-family: var(--display);
+    font-size: 2.1rem;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+  }
+
+  .tile.caution .figure { color: var(--amber); }
+
+  .tile .label {
+    font-size: 0.82rem;
+    color: var(--ink-muted);
+    line-height: 1.4;
+  }
+
+  /* ---------- Sections ---------- */
+
+  section { display: flex; flex-direction: column; gap: 1.25rem; }
+
+  h2 {
+    font-family: var(--display);
+    font-size: 1.42rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0;
+    padding-bottom: 0.7rem;
+    border-bottom: 2px solid var(--line-strong);
+  }
+
+  h2 .count {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    color: var(--ink-faint);
+    vertical-align: 0.35em;
+    margin-left: 0.5rem;
+  }
+
+  p { margin: 0; text-wrap: pretty; }
+
+  .lede { color: var(--ink-muted); font-size: 0.97rem; }
+
+  /* ---------- Feature list ---------- */
+
+  .items { display: flex; flex-direction: column; gap: 0.9rem; }
+
+  .item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.35rem 1rem;
+    align-items: baseline;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 0.95rem 1.1rem;
+    box-shadow: var(--shadow);
+  }
+
+  .item h3 {
+    font-family: var(--body);
+    font-size: 0.97rem;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .item p {
+    grid-column: 1 / -1;
+    font-size: 0.9rem;
+    color: var(--ink-muted);
+  }
+
+  .chip {
+    font-family: var(--mono);
+    font-size: 0.63rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 0.22rem 0.5rem;
+    border-radius: 2px;
+    white-space: nowrap;
+    background: var(--grey-chip);
+    color: var(--ink-muted);
+  }
+
+  .chip.done { background: var(--accent-soft); color: var(--accent); }
+  .chip.partial { background: var(--amber-soft); color: var(--amber); }
+
+  /* ---------- Roadmap ---------- */
+
+  .phases {
+    list-style: none;
+    counter-reset: phase;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .phase {
+    counter-increment: phase;
+    display: grid;
+    grid-template-columns: 2.6rem 1fr;
+    gap: 0 1.1rem;
+    padding: 1.2rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .phase:first-child { padding-top: 0; }
+  .phase:last-child { border-bottom: none; padding-bottom: 0; }
+
+  .phase::before {
+    content: counter(phase, decimal-leading-zero);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--accent);
+    padding-top: 0.15rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .phase h3 {
+    font-family: var(--body);
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.3rem;
+  }
+
+  .phase p { font-size: 0.92rem; color: var(--ink-muted); }
+
+  .phase .why {
+    font-size: 0.85rem;
+    color: var(--ink-faint);
+    margin-top: 0.4rem;
+  }
+
+  /* ---------- Decisions ---------- */
+
+  .decisions {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .decisions li {
+    background: var(--sunken);
+    border-left: 2px solid var(--accent);
+    border-radius: 0 3px 3px 0;
+    padding: 0.9rem 1.1rem;
+    font-size: 0.93rem;
+  }
+
+  .decisions strong { display: block; margin-bottom: 0.15rem; }
+  .decisions span { color: var(--ink-muted); }
+
+  /* ---------- Callout ---------- */
+
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 1.15rem 1.25rem;
+    font-size: 0.93rem;
+    color: var(--ink-muted);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .callout strong { color: var(--ink); }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding-top: 1.1rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--ink-faint);
+    line-height: 1.7;
+  }
+
+  a { color: var(--accent); }
+  a:focus-visible,
+  li:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">FaultFx · Build update</p>
+    <h1>From clickable mock-up to a working system</h1>
+    <p class="standfirst">
+      FaultFx now stores real information and does real work. The screens that
+      previously only looked the part are connected to a live database, and the
+      fault-reporting journey runs end to end.
+    </p>
+    <p class="meta">
+      <span>17 August 2026</span>
+      <span>Prepared for: project stakeholders</span>
+      <span>Status: internal build</span>
+    </p>
+  </header>
+
+  <div class="board">
+    <div class="tile">
+      <span class="figure">8</span>
+      <span class="label">Screens now running on live data</span>
+    </div>
+    <div class="tile">
+      <span class="figure">9</span>
+      <span class="label">Kinds of record the system stores</span>
+    </div>
+    <div class="tile">
+      <span class="figure">1</span>
+      <span class="label">Critical security gap found and closed</span>
+    </div>
+    <div class="tile caution">
+      <span class="figure">5</span>
+      <span class="label">Major features still to build</span>
+    </div>
+  </div>
+
+  <section>
+    <h2>What works now</h2>
+    <p class="lede">
+      Each of these has been tested against the real database, not simulated.
+    </p>
+
+    <div class="items">
+      <div class="item">
+        <h3>Reporting a fault by QR code</h3>
+        <span class="chip done">Working</span>
+        <p>
+          Scanning a code on a wall opens a page that already knows which room it
+          belongs to, and the report is filed against that room. The reporter gets
+          a real reference number they can quote. No account needed.
+        </p>
+      </div>
+
+      <div class="item">
+        <h3>Printable QR codes for every room</h3>
+        <span class="chip done">Working</span>
+        <p>
+          An administrator can add a building and room, then generate and download
+          a QR code to print and mount. Codes that no longer match a real room now
+          fail clearly instead of sending someone into a broken form.
+        </p>
+      </div>
+
+      <div class="item">
+        <h3>The electrician directory</h3>
+        <span class="chip done">Working</span>
+        <p>
+          Searchable by area, specialisation, availability and verification status.
+          Filters are held in the web address, so a filtered list can be shared or
+          bookmarked. It is empty until the first electricians register.
+        </p>
+      </div>
+
+      <div class="item">
+        <h3>Certificates of Compliance</h3>
+        <span class="chip partial">Record only</span>
+        <p>
+          An electrician can complete and digitally sign a certificate, and it is
+          permanently recorded against their profile with a reference anyone can
+          verify. The PDF document itself is not generated yet.
+        </p>
+      </div>
+
+      <div class="item">
+        <h3>Receipts</h3>
+        <span class="chip partial">Record only</span>
+        <p>
+          Itemised receipts are stored and can be signed by both the client and the
+          electrician, each from their own account. PDF output is still to come.
+        </p>
+      </div>
+
+      <div class="item">
+        <h3>Accounts, sign-in and permissions</h3>
+        <span class="chip done">Working</span>
+        <p>
+          Sign-in is connected and the private areas of the site are genuinely
+          protected — an unauthorised visitor is now turned away rather than
+          quietly let through, which was previously the case.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The security issue, in plain terms</h2>
+    <div class="callout">
+      <p>
+        <strong>What we found:</strong> when the database was first created, every
+        table was left open to the public. Anyone who visited the website could
+        have read every user's name, email address and phone number, viewed all
+        receipts and certificates, and even deleted records.
+      </p>
+      <p>
+        <strong>Why it happened:</strong> the tool used to build the database does
+        not switch on access restrictions by default, and the hosting platform
+        publishes tables automatically. Neither is wrong on its own; the gap sits
+        between them.
+      </p>
+      <p>
+        <strong>What we did:</strong> access is now denied by default on every
+        table, and the fix is recorded so it applies automatically to any future
+        copy of the system. We confirmed it by attempting to read the data from
+        outside, the way an outsider would — every attempt was refused.
+      </p>
+      <p>
+        <strong>Exposure:</strong> the gap was closed before any real customer data
+        was entered and before the site was published, so we have no reason to
+        believe anything was accessed.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Not built yet</h2>
+    <p class="lede">
+      Stated plainly, so the current state is not over-read.
+    </p>
+    <div class="items">
+      <div class="item">
+        <h3>Assigning work to an electrician</h3>
+        <span class="chip">Not started</span>
+        <p>
+          The system can already represent a job from assignment through to
+          completion, but there are no screens for it. Today a reported fault
+          cannot yet be handed to anyone. This is the largest remaining gap.
+        </p>
+      </div>
+      <div class="item">
+        <h3>PDF documents and email delivery</h3>
+        <span class="chip">Not started</span>
+        <p>Certificates and receipts exist as records but cannot yet be sent or printed.</p>
+      </div>
+      <div class="item">
+        <h3>Notifications</h3>
+        <span class="chip">Not started</span>
+        <p>Nobody is told when a fault is logged, assigned, or completed.</p>
+      </div>
+      <div class="item">
+        <h3>Payments and subscriptions</h3>
+        <span class="chip">Not started</span>
+        <p>Plans are modelled in the system but no payment provider is connected.</p>
+      </div>
+      <div class="item">
+        <h3>Automated NTA verification</h3>
+        <span class="chip">Manual</span>
+        <p>
+          An administrator marks an electrician as verified by hand. There is no
+          live lookup against the NTA database.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What comes next <span class="count">in order</span></h2>
+    <p class="lede">
+      Each phase is useful on its own, and the order is deliberate — later phases
+      depend on earlier ones.
+    </p>
+
+    <ol class="phases">
+      <li class="phase">
+        <div>
+          <h3>Put real information in</h3>
+          <p>
+            Register the first electricians, set up the rooms for one pilot
+            building, and print its QR codes.
+          </p>
+          <p class="why">
+            Until this happens the directory is empty and nothing can be tested
+            realistically. It needs no further development work.
+          </p>
+        </div>
+      </li>
+
+      <li class="phase">
+        <div>
+          <h3>Close the loop from fault to finished job</h3>
+          <p>
+            Build the screens to assign a reported fault to an electrician, track
+            it through to completion, and let the client rate the work.
+          </p>
+          <p class="why">
+            This is what turns a reporting tool into a service. The groundwork is
+            already done, so it is screens rather than foundations.
+          </p>
+        </div>
+      </li>
+
+      <li class="phase">
+        <div>
+          <h3>Make the paperwork real</h3>
+          <p>
+            Generate proper PDF certificates and receipts, and email them to
+            clients automatically.
+          </p>
+          <p class="why">
+            Compliance paperwork is a core reason electricians would pay for this,
+            and it is currently the weakest link.
+          </p>
+        </div>
+      </li>
+
+      <li class="phase">
+        <div>
+          <h3>Keep people informed</h3>
+          <p>
+            Email and SMS alerts when a fault is logged, assigned, or completed.
+          </p>
+          <p class="why">
+            Without this, someone has to keep checking the site for anything to
+            happen.
+          </p>
+        </div>
+      </li>
+
+      <li class="phase">
+        <div>
+          <h3>Prepare for paying customers</h3>
+          <p>
+            Connect a payment provider for subscriptions, then test and monitor the
+            system properly before opening it to the public.
+          </p>
+          <p class="why">
+            Deliberately last: charging for something is only worth building once
+            the thing being charged for is complete.
+          </p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Decisions we need from you</h2>
+    <ul class="decisions">
+      <li>
+        <strong>Which site should we pilot?</strong>
+        <span>
+          We need one real building to install QR codes in and a handful of
+          electricians willing to be the first users.
+        </span>
+      </li>
+      <li>
+        <strong>Is manual NTA verification acceptable at launch?</strong>
+        <span>
+          Automating the lookup is a significant piece of work and depends on what
+          access the NTA will grant. Checking by hand would let us launch sooner.
+        </span>
+      </li>
+      <li>
+        <strong>Which payment provider?</strong>
+        <span>
+          This affects phase five and is worth deciding early, as it influences how
+          subscriptions are handled.
+        </span>
+      </li>
+    </ul>
+  </section>
+
+  <footer>
+    One thing to keep in mind: the system currently runs on the development
+    machine against a live hosted database. It has not been published to a public
+    web address yet, so there is nothing to visit — that step comes with phase
+    five.
+  </footer>
+
+</div>
+</body>
+</html>

@@ -1,12 +1,23 @@
-"use client";
-
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { notFound } from "next/navigation";
+import { getLocation } from "@/lib/supabase/actions";
 
-/** QR code destination — pre-fills the fault log with the location */
-export default function LocationFaultPage() {
-  const params = useParams();
-  const locationId = decodeURIComponent(params.locationId as string);
+/**
+ * QR code destination. Resolves the scanned id to a real room on the server so
+ * a printed code that no longer matches a location fails loudly (404) instead
+ * of sending someone into a form pre-filled with a meaningless id.
+ */
+export default async function LocationFaultPage({
+  params,
+}: {
+  params: Promise<{ locationId: string }>;
+}) {
+  const { locationId } = await params;
+  const location = await getLocation(decodeURIComponent(locationId));
+
+  if (!location) {
+    notFound();
+  }
 
   return (
     <section
@@ -88,7 +99,21 @@ export default function LocationFaultPage() {
             border: "1px solid rgba(20,184,166,0.15)",
           }}
         >
-          {locationId}
+          {location.building} – {location.room}
+          {location.description && (
+            <span
+              style={{
+                display: "block",
+                fontFamily: "inherit",
+                fontWeight: 400,
+                fontSize: "0.8rem",
+                color: "var(--text-muted)",
+                marginTop: "0.25rem",
+              }}
+            >
+              {location.description}
+            </span>
+          )}
         </p>
 
         <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", marginBottom: "2rem", lineHeight: 1.6 }}>
@@ -96,7 +121,7 @@ export default function LocationFaultPage() {
         </p>
 
         <Link
-          href={`/fault-log?location=${encodeURIComponent(locationId)}`}
+          href={`/fault-log?location=${location.id}`}
           id="location-report-fault-btn"
           className="btn-primary"
           style={{ width: "100%", justifyContent: "center", fontSize: "1rem", padding: "0.875rem 1.5rem" }}

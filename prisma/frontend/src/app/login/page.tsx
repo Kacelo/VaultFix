@@ -2,7 +2,7 @@
 
 import { useState, FormEvent } from "react";
 import Link from "next/link";
-import { signInWithGoogle } from "@/lib/supabase/actions";
+import { signInWithGoogle, signInWithPassword } from "@/lib/supabase/actions";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -14,13 +14,17 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    // TODO: wire up Supabase signInWithPassword
-    try {
-      await new Promise((r) => setTimeout(r, 1000)); // mock
-      window.location.href = "/dashboard";
-    } catch {
-      setError("Invalid email or password. Please try again.");
-    } finally {
+
+    const formData = new FormData();
+    formData.set("email", email);
+    formData.set("password", password);
+
+    // On success the action redirects, so control never returns here; a
+    // returned value only ever means the sign-in was rejected.
+    const result = await signInWithPassword(null, formData);
+
+    if (result?.error) {
+      setError(result.error);
       setLoading(false);
     }
   }
