@@ -1,17 +1,29 @@
 import Link from "next/link";
+import { listCertificates } from "@/lib/supabase/actions";
+import { AccessNotice } from "@/components/AccessNotice";
 
-export default function CertsDashboardPage() {
-  const certs = [
-    { id: "coc-1", type: "Certificate of Compliance", client: "John Ndapewoshali", address: "12 Independence Ave, Windhoek", date: "2025-11-03", status: "issued", ref: "COC-2025-0041" },
-    { id: "coc-2", type: "Certificate of Compliance", client: "Maria Hamunyela", address: "Plot 5, Okuryangava, Windhoek North", date: "2025-09-17", status: "issued", ref: "COC-2025-0028" },
-    { id: "wl-1", type: "Wireman License", client: "David Shilongo", address: "—", date: "2024-06-01", status: "active", ref: "WL-2024-0012" },
-  ];
+export const dynamic = "force-dynamic";
 
-  const statusStyle: Record<string, { color: string; bg: string }> = {
-    issued: { color: "#4ade80", bg: "rgba(34,197,94,0.12)" },
-    active: { color: "#60a5fa", bg: "rgba(96,165,250,0.12)" },
-    expired: { color: "#f87171", bg: "rgba(239,68,68,0.12)" },
-  };
+const typeLabel: Record<string, string> = {
+  COC: "Certificate of Compliance",
+  WIREMAN_LICENSE: "Wireman License",
+  NTA_VERIFIED: "NTA Verification",
+};
+
+const statusStyle: Record<string, { color: string; bg: string }> = {
+  issued: { color: "#4ade80", bg: "rgba(34,197,94,0.12)" },
+  active: { color: "#60a5fa", bg: "rgba(96,165,250,0.12)" },
+  expired: { color: "#f87171", bg: "rgba(239,68,68,0.12)" },
+};
+
+export default async function CertsDashboardPage() {
+  let certs;
+
+  try {
+    certs = await listCertificates();
+  } catch {
+    certs = null;
+  }
 
   return (
     <section
@@ -92,8 +104,22 @@ export default function CertsDashboardPage() {
           <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "1.1rem", marginBottom: "1.25rem" }}>
             Issued Certificates
           </h2>
+          {certs === null ? (
+            <AccessNotice
+              title="Electrician access required"
+              message="Log in as a registered electrician to view and issue certificates."
+            />
+          ) : certs.length === 0 ? (
+            <p style={{ color: "var(--text-muted)", fontSize: "0.9rem", padding: "1rem 0" }}>
+              No certificates issued yet. Use “Generate COC” above to issue your first one.
+            </p>
+          ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-            {certs.map((cert) => (
+            {certs.map((cert) => {
+              const expired = cert.expiresAt !== null && cert.expiresAt < new Date();
+              const status = expired ? "expired" : cert.type === "COC" ? "issued" : "active";
+
+              return (
               <div
                 key={cert.id}
                 style={{
@@ -110,49 +136,56 @@ export default function CertsDashboardPage() {
               >
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.625rem", marginBottom: "0.25rem" }}>
-                    <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>{cert.type}</span>
+                    <span style={{ fontWeight: 600, fontSize: "0.9rem" }}>
+                      {typeLabel[cert.type] ?? cert.type}
+                    </span>
                     <span
                       style={{
                         padding: "0.15rem 0.5rem",
                         borderRadius: "var(--radius-full)",
                         fontSize: "0.7rem",
                         fontWeight: 700,
-                        background: statusStyle[cert.status]?.bg,
-                        color: statusStyle[cert.status]?.color,
+                        background: statusStyle[status]?.bg,
+                        color: statusStyle[status]?.color,
                         textTransform: "capitalize",
                       }}
                     >
-                      {cert.status}
+                      {status}
                     </span>
                   </div>
                   <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                    {cert.client} · {cert.ref} · {cert.date}
+                    {cert.clientName ?? "—"} · {cert.ref} ·{" "}
+                    {cert.issuedAt.toLocaleDateString("en-GB")}
                   </div>
-                  {cert.address !== "—" && (
-                    <div style={{ fontSize: "0.775rem", color: "var(--text-subtle)", marginTop: "0.125rem" }}>📍 {cert.address}</div>
+                  {cert.propertyAddress && (
+                    <div style={{ fontSize: "0.775rem", color: "var(--text-subtle)", marginTop: "0.125rem" }}>
+                      📍 {cert.propertyAddress}
+                    </div>
                   )}
                 </div>
                 <div style={{ display: "flex", gap: "0.5rem" }}>
-                  <button
-                    id={`download-cert-${cert.id}`}
-                    type="button"
-                    className="btn-outline"
-                    style={{ padding: "0.4rem 0.875rem", fontSize: "0.8rem" }}
-                  >
-                    ⬇ PDF
-                  </button>
-                  <button
-                    id={`email-cert-${cert.id}`}
-                    type="button"
-                    className="btn-outline"
-                    style={{ padding: "0.4rem 0.875rem", fontSize: "0.8rem" }}
-                  >
-                    📧 Email
-                  </button>
+                  {cert.pdfUrl ? (
+                    <a
+                      id={`download-cert-${cert.id}`}
+                      href={cert.pdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-outline"
+                      style={{ padding: "0.4rem 0.875rem", fontSize: "0.8rem" }}
+                    >
+                      ⬇ PDF
+                    </a>
+                  ) : (
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-subtle)", alignSelf: "center" }}>
+                      PDF not generated
+                    </span>
+                  )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
+          )}
         </div>
       </div>
     </section>

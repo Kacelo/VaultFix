@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, FormEvent, Suspense } from "react";
+import { useState, useEffect, FormEvent, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { createFaultReport, listLocationsForReporting } from "@/lib/supabase/actions";
 
 type Priority = "critical" | "high" | "medium" | "low";
+
+type ReportingLocation = { id: string; building: string; room: string };
 
 /** Simple NLP priority ranking based on keywords in the fault description */
 function rankPriority(text: string): Priority {
@@ -33,11 +36,24 @@ function FaultLogForm() {
   const locationId = searchParams.get("location") || "";
 
   const [description, setDescription] = useState("");
-  const [location, setLocation] = useState(locationId ? decodeURIComponent(locationId) : "");
+  const [location, setLocation] = useState(locationId);
+  const [locations, setLocations] = useState<ReportingLocation[]>([]);
+  const [reporterName, setReporterName] = useState("");
   const [priority, setPriority] = useState<Priority | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [faultRef, setFaultRef] = useState("");
+  const [error, setError] = useState("");
+
+  // Rooms are picked from the real Location rows the QR codes point at, so a
+  // report always lands against something an electrician can actually find.
+  useEffect(() => {
+    listLocationsForReporting()
+      .then(setLocations)
+      .catch(() => setError("Could not load the room list. You can still describe the fault below."));
+  }, []);
+
+  const selectedLocation = locations.find((l) => l.id === location);
 
   function handleDescChange(val: string) {
     setDescription(val);
@@ -51,11 +67,33 @@ function FaultLogForm() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitting(true);
-    await new Promise((r) => setTimeout(r, 1400)); // mock API
-    const ref = "VF-" + Math.random().toString(36).slice(2, 8).toUpperCase();
-    setFaultRef(ref);
-    setSubmitted(true);
-    setSubmitting(false);
+    setError("");
+
+    try {
+      const report = await createFaultReport({
+        description,
+        priority: (priority ?? "medium").toUpperCase() as
+          | "CRITICAL"
+          | "HIGH"
+          | "MEDIUM"
+          | "LOW",
+        locationId: location || undefined,
+        reporterName: reporterName || undefined,
+      });
+
+      // The reference comes back from the database, so it is the real one an
+      // electrician will search for — not a client-side placeholder.
+      setFaultRef(report.ref);
+      setSubmitted(true);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not submit the report. Please try again."
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   if (submitted) {
@@ -86,7 +124,7 @@ function FaultLogForm() {
           </div>
         </div>
         <button
-          onClick={() => { setSubmitted(false); setDescription(""); setPriority(null); }}
+          onClick={() => { setSubmitted(false); setDescription(""); setPriority(null); setReporterName(""); }}
           className="btn-outline"
           style={{ width: "100%", justifyContent: "center" }}
         >
@@ -114,22 +152,54 @@ function FaultLogForm() {
           }}
         >
           <span>📍</span>
-          <strong>Location pre-filled from QR code:</strong>&nbsp;{decodeURIComponent(locationId)}
+          <strong>Location pre-filled from QR code:</strong>&nbsp;
+          {selectedLocation
+            ? `${selectedLocation.building} – ${selectedLocation.room}`
+            : "loading…"}
+        </div>
+      )}
+
+      {error && (
+        <div
+          role="alert"
+          style={{
+            padding: "0.75rem 1rem",
+            background: "rgba(239,68,68,0.1)",
+            border: "1px solid rgba(239,68,68,0.25)",
+            borderRadius: "var(--radius-md)",
+            color: "#fca5a5",
+            fontSize: "0.875rem",
+            marginBottom: "1.25rem",
+          }}
+        >
+          {error}
         </div>
       )}
 
       {/* Location */}
       <div style={{ marginBottom: "1.125rem" }}>
         <label htmlFor="fault-location" className="label">Location / Room</label>
-        <input
+        <select
           id="fault-location"
-          type="text"
           className="input"
-          placeholder="e.g. Block A – Classroom 12, Admin Building – Server Room"
           value={location}
           onChange={(e) => setLocation(e.target.value)}
           required
-        />
+        >
+          <option value="">
+            {locations.length ? "Select the room…" : "Loading rooms…"}
+          </option>
+          {locations.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.building} – {l.room}
+            </option>
+          ))}
+        </select>
+        {locations.length === 0 && !error && (
+          <p style={{ fontSize: "0.8rem", color: "var(--text-subtle)", marginTop: "0.375rem" }}>
+            No rooms have been set up yet — an admin can add them in the QR Code Generator.
+          </p>
+        )}
       </div>
 
       {/* Description */}
@@ -206,7 +276,14 @@ function FaultLogForm() {
         <label htmlFor="fault-reporter" className="label">
           Your name <span style={{ color: "var(--text-subtle)", fontWeight: 400 }}>(optional)</span>
         </label>
-        <input id="fault-reporter" type="text" className="input" placeholder="Leave blank to report anonymously" />
+        <input
+          id="fault-reporter"
+          type="text"
+          className="input"
+          placeholder="Leave blank to report anonymously"
+          value={reporterName}
+          onChange={(e) => setReporterName(e.target.value)}
+        />
       </div>
 
       <button

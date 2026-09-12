@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { createCertificate } from "@/lib/supabase/actions";
 import Link from "next/link";
 
 export default function CertsGeneratePage() {
@@ -22,6 +23,8 @@ export default function CertsGeneratePage() {
   // PDF generation state
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
+  const [certRef, setCertRef] = useState("");
+  const [error, setError] = useState("");
 
   function getPos(e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current!;
@@ -70,10 +73,34 @@ export default function CertsGeneratePage() {
 
   async function generateCOC() {
     setGenerating(true);
-    // Mock PDF generation — replace with jsPDF + html2canvas when installed
-    await new Promise((r) => setTimeout(r, 2000));
-    setGenerated(true);
-    setGenerating(false);
+    setError("");
+
+    try {
+      // The signature is captured as a data URL and stored on the record, so the
+      // certificate is persisted even though PDF rendering is still to come.
+      const signatureDataUrl = canvasRef.current?.toDataURL("image/png");
+
+      const cert = await createCertificate({
+        type: "COC",
+        clientName,
+        propertyAddress: clientAddress,
+        propertyType,
+        workDescription: workDesc,
+        inspectionDate: inspectionDate ? new Date(inspectionDate) : undefined,
+        signatureDataUrl,
+      });
+
+      setCertRef(cert.ref);
+      setGenerated(true);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not issue the certificate. Please try again."
+      );
+    } finally {
+      setGenerating(false);
+    }
   }
 
   return (
@@ -108,18 +135,53 @@ export default function CertsGeneratePage() {
         {generated ? (
           <div className="glass animate-fade-up" style={{ padding: "2.5rem", textAlign: "center" }}>
             <div style={{ fontSize: "3.5rem", marginBottom: "1rem" }}>📄</div>
-            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.75rem", fontWeight: 800, marginBottom: "0.75rem" }}>COC Generated!</h2>
-            <p style={{ color: "var(--text-muted)", marginBottom: "1.75rem" }}>
-              Your Certificate of Compliance has been generated and is ready to download.
+            <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.75rem", fontWeight: 800, marginBottom: "0.75rem" }}>COC Issued!</h2>
+            <p style={{ color: "var(--text-muted)", marginBottom: "1rem" }}>
+              The certificate has been recorded against your electrician profile and can be
+              verified by anyone using its reference.
             </p>
+            <div
+              style={{
+                background: "rgba(20,184,166,0.08)",
+                border: "1px solid rgba(20,184,166,0.2)",
+                borderRadius: "var(--radius-md)",
+                padding: "1rem",
+                marginBottom: "1.75rem",
+              }}
+            >
+              <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Certificate reference</span>
+              <div style={{ fontFamily: "var(--font-display)", fontSize: "1.5rem", fontWeight: 800, color: "var(--teal-300)", letterSpacing: "0.05em" }}>
+                {certRef}
+              </div>
+            </div>
             <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
-              <button className="btn-primary" style={{ padding: "0.75rem 1.5rem" }}>⬇ Download PDF</button>
-              <button className="btn-outline" style={{ padding: "0.75rem 1.5rem" }}>📧 Email to Client</button>
+              <Link href="/certs" className="btn-primary" style={{ padding: "0.75rem 1.5rem" }}>
+                View all certificates
+              </Link>
               <button onClick={() => setGenerated(false)} className="btn-outline" style={{ padding: "0.75rem 1.5rem" }}>Generate Another</button>
             </div>
+            <p style={{ marginTop: "1.25rem", fontSize: "0.8rem", color: "var(--text-subtle)" }}>
+              PDF download and email delivery are not built yet — the record itself is saved.
+            </p>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+            {error && (
+              <div
+                role="alert"
+                style={{
+                  padding: "0.75rem 1rem",
+                  background: "rgba(239,68,68,0.1)",
+                  border: "1px solid rgba(239,68,68,0.25)",
+                  borderRadius: "var(--radius-md)",
+                  color: "#fca5a5",
+                  fontSize: "0.875rem",
+                }}
+              >
+                {error}
+              </div>
+            )}
+
             {/* Section 1: Property & Client */}
             <div className="glass" style={{ padding: "1.75rem" }}>
               <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "1.1rem", marginBottom: "1.25rem", color: "var(--teal-300)" }}>

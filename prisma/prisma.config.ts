@@ -9,8 +9,11 @@ export default defineConfig({
   migrations: {
     path: "prisma/migrations",
   },
-  engine: "classic",
+  // Used by Migrate/introspection only — the runtime client connects through
+  // the PrismaPg adapter in frontend/src/lib/prisma.ts instead. So this must be
+  // DIRECT_URL (session pooler, :5432): DDL over the transaction pooler on
+  // :6543 hangs silently rather than erroring.
   datasource: {
-    url: env("DATABASE_URL"),
+    url: env("DIRECT_URL"),
   },
 });
