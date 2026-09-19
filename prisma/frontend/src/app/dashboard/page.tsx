@@ -10,6 +10,18 @@ import {
 } from "@/lib/supabase/actions";
 import { AccessNotice } from "@/components/AccessNotice";
 import { VerifyButtons } from "./VerifyButtons";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 // Everything here is the caller's own live workload; a cached snapshot would be
 // actively misleading.
@@ -27,38 +39,31 @@ function formatDate(date: Date) {
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function priorityClass(priority: string) {
-  return `badge badge-${priority.toLowerCase()}`;
-}
+/**
+ * shadcn's Card ships a flat `bg-card`. `.glass` is defined unlayered in
+ * globals.css, so it beats Tailwind's utilities and restores the frosted panel
+ * the rest of the app uses — same primitives, same visual language.
+ */
+const GLASS = "glass border-transparent";
 
-function Stat({ value, label, href }: { value: number | string; label: string; href?: string }) {
+function StatCard({ value, label, href }: { value: number | string; label: string; href?: string }) {
   const body = (
-    <>
-      <div
-        style={{
-          fontFamily: "var(--font-display)",
-          fontSize: "1.75rem",
-          fontWeight: 800,
-          color: "var(--teal-300)",
-          lineHeight: 1.1,
-        }}
-      >
+    <CardContent className="px-5 py-4">
+      <div className="font-[family-name:var(--font-display)] text-3xl font-extrabold leading-none text-[var(--teal-300)]">
         {value}
       </div>
-      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", letterSpacing: "0.03em" }}>
-        {label}
-      </div>
-    </>
+      <div className="mt-1 text-xs tracking-wide text-muted-foreground">{label}</div>
+    </CardContent>
   );
 
   return (
-    <div className="glass" style={{ padding: "1.125rem 1.25rem", flex: "1 1 150px" }}>
+    <Card className={`${GLASS} min-w-[150px] flex-1 py-0 transition-transform hover:-translate-y-0.5`}>
       {href ? <Link href={href}>{body}</Link> : body}
-    </div>
+    </Card>
   );
 }
 
-function Card({
+function Section({
   title,
   action,
   children,
@@ -68,74 +73,48 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <div className="glass" style={{ padding: "1.5rem" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "0.75rem",
-          marginBottom: "1rem",
-        }}
-      >
-        <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "1.05rem" }}>
-          {title}
-        </h2>
+    <Card className={GLASS}>
+      <CardHeader>
+        <CardTitle className="font-[family-name:var(--font-display)] text-base">{title}</CardTitle>
         {action && (
-          <Link href={action.href} style={{ fontSize: "0.8rem", color: "var(--teal-400)" }}>
-            {action.label} →
-          </Link>
+          <CardAction>
+            <Button asChild variant="link" size="sm" className="text-[var(--teal-400)]">
+              <Link href={action.href}>{action.label} →</Link>
+            </Button>
+          </CardAction>
         )}
-      </div>
-      {children}
-    </div>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
   );
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
+  return <p className="text-sm leading-relaxed text-muted-foreground">{children}</p>;
+}
+
+/** Reuses the established priority palette from globals.css. */
+function PriorityBadge({ value }: { value: string }) {
   return (
-    <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", lineHeight: 1.7 }}>{children}</p>
+    <Badge variant="outline" className={`badge-${value.toLowerCase()} border-transparent`}>
+      {value}
+    </Badge>
   );
 }
 
-function Row({
-  title,
-  meta,
-  right,
-}: {
-  title: React.ReactNode;
-  meta: React.ReactNode;
-  right?: React.ReactNode;
-}) {
+function StatusBadge({ value }: { value: string }) {
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "1rem",
-        padding: "0.75rem 0",
-        borderBottom: "1px solid var(--border-muted)",
-      }}
-    >
-      <div style={{ minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: "0.875rem",
-            fontWeight: 500,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {title}
-        </div>
-        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.15rem" }}>
-          {meta}
-        </div>
-      </div>
-      {right && <div style={{ flexShrink: 0 }}>{right}</div>}
-    </div>
+    <Badge variant={isActiveJob(value) ? "secondary" : "outline"} className="font-medium">
+      {value.replace("_", " ")}
+    </Badge>
+  );
+}
+
+function Money({ amount }: { amount: number }) {
+  return (
+    <span className="font-[family-name:var(--font-display)] font-bold text-[var(--teal-300)]">
+      N${amount.toLocaleString()}
+    </span>
   );
 }
 
@@ -154,71 +133,104 @@ async function ClientDashboard() {
 
   return (
     <>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.875rem", marginBottom: "1.25rem" }}>
-        <Stat value={openFaults.length} label="OPEN FAULTS" href="/fault-log" />
-        <Stat value={activeJobs.length} label="JOBS IN PROGRESS" />
-        <Stat value={toSign.length} label="RECEIPTS TO SIGN" href="/receipts" />
+      <div className="mb-5 flex flex-wrap gap-3.5">
+        <StatCard value={openFaults.length} label="OPEN FAULTS" href="/fault-log" />
+        <StatCard value={activeJobs.length} label="JOBS IN PROGRESS" />
+        <StatCard value={toSign.length} label="RECEIPTS TO SIGN" href="/receipts" />
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-        {/* Surfaced first because it is the only item here that is blocked on
-            the client rather than on someone else. */}
+      <div className="flex flex-col gap-5">
+        {/* First, because it is the only item here blocked on the client rather
+            than on someone else. */}
         {toSign.length > 0 && (
-          <Card title="Needs your signature" action={{ href: "/receipts", label: "Go to receipts" }}>
-            {toSign.slice(0, 5).map((r) => (
-              <Row
-                key={r.id}
-                title={r.job.fault.description}
-                meta={`${r.ref} · issued ${formatDate(r.issuedAt)}`}
-                right={
-                  <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, color: "var(--teal-300)" }}>
-                    N${r.totalAmount.toLocaleString()}
-                  </span>
-                }
-              />
-            ))}
-          </Card>
+          <Section title="Needs your signature" action={{ href: "/receipts", label: "Go to receipts" }}>
+            <Table>
+              <TableBody>
+                {toSign.slice(0, 5).map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium">{r.job.fault.description}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {r.ref} · issued {formatDate(r.issuedAt)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Money amount={r.totalAmount} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Section>
         )}
 
-        <Card title="Your fault reports" action={{ href: "/fault-log", label: "Report a fault" }}>
+        <Section title="Your fault reports" action={{ href: "/fault-log", label: "Report a fault" }}>
           {faults.length === 0 ? (
             <Empty>
               You haven&apos;t reported any faults yet. Scan a QR code in a room, or use the report
               form, and it will show up here.
             </Empty>
           ) : (
-            faults
-              .slice(0, 6)
-              .map((f) => (
-                <Row
-                  key={f.id}
-                  title={f.description}
-                  meta={`${f.ref} · ${f.location ? `${f.location.building} · ${f.location.room}` : "No location"} · ${formatDate(f.createdAt)}`}
-                  right={<span className={priorityClass(f.priority)}>{f.status}</span>}
-                />
-              ))
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fault</TableHead>
+                  <TableHead>Where</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Priority</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {faults.slice(0, 6).map((f) => (
+                  <TableRow key={f.id}>
+                    <TableCell className="font-medium">{f.description}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {f.location ? `${f.location.building} · ${f.location.room}` : "No location"}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge value={f.status} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <PriorityBadge value={f.priority} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
-        </Card>
+        </Section>
 
-        <Card title="Your jobs">
+        <Section title="Your jobs">
           {jobs.length === 0 ? (
             <Empty>
-              No call-outs yet. Once you assign an electrician to one of your faults, the job
-              appears here. <Link href="/technicians" style={{ color: "var(--teal-400)" }}>Find an electrician</Link>.
+              No call-outs yet. Once you assign an electrician to one of your faults, the job appears
+              here.{" "}
+              <Link href="/technicians" className="text-[var(--teal-400)]">
+                Find an electrician
+              </Link>
+              .
             </Empty>
           ) : (
-            jobs
-              .slice(0, 6)
-              .map((j) => (
-                <Row
-                  key={j.id}
-                  title={j.fault.description}
-                  meta={`${j.fault.ref} · ${j.electrician.user.name}`}
-                  right={<span className="badge badge-verified">{j.status}</span>}
-                />
-              ))
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fault</TableHead>
+                  <TableHead>Electrician</TableHead>
+                  <TableHead className="text-right">Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {jobs.slice(0, 6).map((j) => (
+                  <TableRow key={j.id}>
+                    <TableCell className="font-medium">{j.fault.description}</TableCell>
+                    <TableCell className="text-muted-foreground">{j.electrician.user.name}</TableCell>
+                    <TableCell className="text-right">
+                      <StatusBadge value={j.status} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
-        </Card>
+        </Section>
       </div>
     </>
   );
@@ -241,57 +253,40 @@ async function ElectricianDashboard() {
 
   return (
     <>
-      {/* The single most important thing an electrician can be told: why no
-          work is arriving. Verification gates both assignment (createJob) and
-          the availability toggle, so it goes above everything else. */}
+      {/* The single most important thing an electrician can be told: why no work
+          is arriving. Verification gates both assignment (createJob) and the
+          availability toggle, so it goes above everything else. */}
       {!verification?.ntaVerified && (
-        <div
-          className="glass"
-          style={{
-            padding: "1.5rem",
-            marginBottom: "1.25rem",
-            border: "1px solid rgba(245,158,11,0.3)",
-            background: "rgba(245,158,11,0.06)",
-          }}
-        >
-          <h2
-            style={{
-              fontFamily: "var(--font-display)",
-              fontWeight: 700,
-              fontSize: "1.05rem",
-              marginBottom: "0.5rem",
-            }}
-          >
+        <Alert className="mb-5 border-[rgba(245,158,11,0.3)] bg-[rgba(245,158,11,0.06)]">
+          <AlertTitle className="font-[family-name:var(--font-display)] text-base font-bold">
             ⚠ Verification incomplete
-          </h2>
-          <p style={{ color: "var(--text-muted)", fontSize: "0.875rem", lineHeight: 1.7, marginBottom: "1.125rem" }}>
+          </AlertTitle>
+          <AlertDescription className="mt-1 block leading-relaxed">
             {verification
               ? "Until your NTA certification is verified you cannot be assigned call-outs and cannot mark yourself available. Submitting your NTA UID sends it to an administrator to check."
               : "Your electrician profile isn't set up yet. Add your NTA UID to start the verification process."}
-          </p>
-          <Link
-            href="/electrician/verification"
-            className="btn-primary"
-            style={{ display: "inline-flex", justifyContent: "center", fontSize: "0.875rem" }}
-          >
-            {verification?.ntaUid ? "Check verification status" : "Submit for verification"}
-          </Link>
-        </div>
+            <Button asChild className="mt-4 w-fit">
+              <Link href="/electrician/verification">
+                {verification?.ntaUid ? "Check verification status" : "Submit for verification"}
+              </Link>
+            </Button>
+          </AlertDescription>
+        </Alert>
       )}
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.875rem", marginBottom: "1.25rem" }}>
-        <Stat value={activeJobs.length} label="ACTIVE CALL-OUTS" />
-        <Stat value={completed.length} label="COMPLETED" />
-        <Stat value={toSign.length} label="RECEIPTS TO SIGN" href="/receipts" />
-        <Stat
+      <div className="mb-5 flex flex-wrap gap-3.5">
+        <StatCard value={activeJobs.length} label="ACTIVE CALL-OUTS" />
+        <StatCard value={completed.length} label="COMPLETED" />
+        <StatCard value={toSign.length} label="RECEIPTS TO SIGN" href="/receipts" />
+        <StatCard
           value={verification?.isAvailable ? "Available" : "Busy"}
           label="STATUS"
           href="/electrician/verification"
         />
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-        <Card title="Your call-outs" action={{ href: "/certs", label: "Certificates" }}>
+      <div className="flex flex-col gap-5">
+        <Section title="Your call-outs" action={{ href: "/certs", label: "Certificates" }}>
           {jobs.length === 0 ? (
             <Empty>
               No call-outs assigned yet.{" "}
@@ -300,34 +295,52 @@ async function ElectricianDashboard() {
                 : "Verified electricians appear in the directory and can be booked."}
             </Empty>
           ) : (
-            jobs
-              .slice(0, 8)
-              .map((j) => (
-                <Row
-                  key={j.id}
-                  title={j.fault.description}
-                  meta={`${j.fault.ref} · ${j.client.name} · ${formatDate(j.createdAt)}`}
-                  right={<span className={priorityClass(j.fault.priority)}>{j.status}</span>}
-                />
-              ))
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fault</TableHead>
+                  <TableHead>Client</TableHead>
+                  <TableHead>Raised</TableHead>
+                  <TableHead className="text-right">Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {jobs.slice(0, 8).map((j) => (
+                  <TableRow key={j.id}>
+                    <TableCell className="font-medium">{j.fault.description}</TableCell>
+                    <TableCell className="text-muted-foreground">{j.client.name}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(j.createdAt)}</TableCell>
+                    <TableCell className="text-right">
+                      <StatusBadge value={j.status} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
-        </Card>
+        </Section>
 
         {toSign.length > 0 && (
-          <Card title="Receipts awaiting your signature" action={{ href: "/receipts", label: "Go to receipts" }}>
-            {toSign.slice(0, 5).map((r) => (
-              <Row
-                key={r.id}
-                title={r.job.fault.description}
-                meta={`${r.ref} · issued ${formatDate(r.issuedAt)}`}
-                right={
-                  <span style={{ fontFamily: "var(--font-display)", fontWeight: 700, color: "var(--teal-300)" }}>
-                    N${r.totalAmount.toLocaleString()}
-                  </span>
-                }
-              />
-            ))}
-          </Card>
+          <Section
+            title="Receipts awaiting your signature"
+            action={{ href: "/receipts", label: "Go to receipts" }}
+          >
+            <Table>
+              <TableBody>
+                {toSign.slice(0, 5).map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium">{r.job.fault.description}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {r.ref} · issued {formatDate(r.issuedAt)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Money amount={r.totalAmount} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Section>
         )}
       </div>
     </>
@@ -347,72 +360,118 @@ async function AdminDashboard() {
 
   return (
     <>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.875rem", marginBottom: "1.25rem" }}>
-        <Stat value={pending.length} label="AWAITING VERIFICATION" />
-        <Stat value={unassigned.length} label="UNASSIGNED FAULTS" />
-        <Stat value={activeJobs.length} label="ACTIVE JOBS" />
-        <Stat value="QR" label="MANAGE LOCATIONS" href="/admin/qr-codes" />
+      <div className="mb-5 flex flex-wrap gap-3.5">
+        <StatCard value={pending.length} label="AWAITING VERIFICATION" />
+        <StatCard value={unassigned.length} label="UNASSIGNED FAULTS" />
+        <StatCard value={activeJobs.length} label="ACTIVE JOBS" />
+        <StatCard value="QR" label="MANAGE LOCATIONS" href="/admin/qr-codes" />
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+      <div className="flex flex-col gap-5">
         {/* First, because everyone in this queue is blocked from working until
             an admin acts. Oldest first. */}
-        <Card title="Verification queue">
+        <Section title="Verification queue">
           {pending.length === 0 ? (
             <Empty>Nothing waiting. Every submitted NTA UID has been reviewed.</Empty>
           ) : (
-            pending.map((p) => (
-              <Row
-                key={p.id}
-                title={p.user.name}
-                meta={`NTA ${p.ntaUid} · ${p.user.email} · submitted ${formatDate(p.updatedAt)}${
-                  p.wiremanLicense ? ` · licence ${p.wiremanLicense}` : ""
-                }`}
-                right={
-                  <VerifyButtons
-                    profileId={p.id}
-                    hasLicence={Boolean(p.wiremanLicense)}
-                    wiremanVerified={p.wiremanVerified}
-                  />
-                }
-              />
-            ))
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Electrician</TableHead>
+                  <TableHead>NTA UID</TableHead>
+                  <TableHead>Submitted</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pending.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell>
+                      <div className="font-medium">{p.user.name}</div>
+                      <div className="text-xs text-muted-foreground">{p.user.email}</div>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {p.ntaUid}
+                      {p.wiremanLicense && (
+                        <div className="text-xs">licence {p.wiremanLicense}</div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(p.updatedAt)}</TableCell>
+                    <TableCell className="text-right">
+                      <VerifyButtons
+                        profileId={p.id}
+                        hasLicence={Boolean(p.wiremanLicense)}
+                        wiremanVerified={p.wiremanVerified}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
-        </Card>
+        </Section>
 
-        <Card title="Faults with no electrician assigned">
+        <Section title="Faults with no electrician assigned">
           {unassigned.length === 0 ? (
             <Empty>Every reported fault has an electrician on it.</Empty>
           ) : (
-            unassigned
-              .slice(0, 8)
-              .map((f) => (
-                <Row
-                  key={f.id}
-                  title={f.description}
-                  meta={`${f.ref} · ${f.location ? `${f.location.building} · ${f.location.room}` : "No location"} · ${formatDate(f.createdAt)}`}
-                  right={<span className={priorityClass(f.priority)}>{f.priority}</span>}
-                />
-              ))
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fault</TableHead>
+                  <TableHead>Where</TableHead>
+                  <TableHead>Logged</TableHead>
+                  <TableHead className="text-right">Priority</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {unassigned.slice(0, 8).map((f) => (
+                  <TableRow key={f.id}>
+                    <TableCell className="font-medium">{f.description}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {f.location ? `${f.location.building} · ${f.location.room}` : "No location"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(f.createdAt)}</TableCell>
+                    <TableCell className="text-right">
+                      <PriorityBadge value={f.priority} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
-        </Card>
+        </Section>
 
-        <Card title="Recent jobs">
+        <Section title="Recent jobs">
           {jobs.length === 0 ? (
             <Empty>No jobs have been created yet.</Empty>
           ) : (
-            jobs
-              .slice(0, 8)
-              .map((j) => (
-                <Row
-                  key={j.id}
-                  title={j.fault.description}
-                  meta={`${j.fault.ref} · ${j.client.name} → ${j.electrician.user.name}`}
-                  right={<span className="badge badge-verified">{j.status}</span>}
-                />
-              ))
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fault</TableHead>
+                  <TableHead>Client</TableHead>
+                  <TableHead>Electrician</TableHead>
+                  <TableHead className="text-right">Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {jobs.slice(0, 8).map((j) => (
+                  <TableRow key={j.id}>
+                    <TableCell className="font-medium">{j.fault.description}</TableCell>
+                    <TableCell className="text-muted-foreground">{j.client.name}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {j.electrician.user.name}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <StatusBadge value={j.status} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
-        </Card>
+        </Section>
       </div>
     </>
   );
@@ -426,21 +485,19 @@ export default async function DashboardPage() {
   const user = await getCurrentUser().catch(() => null);
 
   return (
+    // The hero gradient stays an inline style: it is a CSS gradient behind a
+    // custom property, which Tailwind's bg-* utilities cannot express.
     <section
-      style={{
-        minHeight: "calc(100dvh - 68px)",
-        background: "var(--grad-hero)",
-        padding: "2.5rem 1.5rem 4rem",
-        position: "relative",
-        overflow: "hidden",
-      }}
+      className="relative min-h-[calc(100dvh-68px)] overflow-hidden px-6 pt-10 pb-16"
+      style={{ background: "var(--grad-hero)" }}
     >
       <div
         aria-hidden
-        style={{ position: "absolute", inset: 0, background: "var(--grad-glow)", pointerEvents: "none" }}
+        className="pointer-events-none absolute inset-0"
+        style={{ background: "var(--grad-glow)" }}
       />
 
-      <div className="container" style={{ position: "relative" }}>
+      <div className="container relative">
         {!user ? (
           <AccessNotice
             title="Sign in to view your dashboard"
@@ -448,26 +505,21 @@ export default async function DashboardPage() {
           />
         ) : (
           <>
-            <div style={{ marginBottom: "2rem" }}>
+            <header className="mb-8">
               <h1
                 id="dashboard-heading"
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontSize: "clamp(1.6rem, 3vw, 2.4rem)",
-                  fontWeight: 800,
-                  marginBottom: "0.35rem",
-                }}
+                className="font-[family-name:var(--font-display)] text-[clamp(1.6rem,3vw,2.4rem)] font-extrabold"
               >
                 {user.name.split(" ")[0]}&apos;s dashboard
               </h1>
-              <p style={{ color: "var(--text-muted)", fontSize: "0.95rem" }}>
+              <p className="mt-1 text-[0.95rem] text-muted-foreground">
                 {user.role === "ADMIN"
                   ? "Platform overview — verifications, unassigned faults and live jobs."
                   : user.role === "ELECTRICIAN"
                     ? "Your call-outs, certificates and verification status."
                     : "Your fault reports, call-outs and receipts."}
               </p>
-            </div>
+            </header>
 
             {user.role === "ADMIN" ? (
               <AdminDashboard />
