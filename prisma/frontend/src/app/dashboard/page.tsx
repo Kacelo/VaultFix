@@ -13,7 +13,14 @@ import { VerifyButtons } from "./VerifyButtons";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -36,28 +43,51 @@ function isActiveJob(status: string) {
 }
 
 function formatDate(date: Date) {
-  return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 /**
- * shadcn's Card ships a flat `bg-card`. `.glass` is defined unlayered in
+ * shadcn's Card ships a flat `bg-card`. `.glass` is declared unlayered in
  * globals.css, so it beats Tailwind's utilities and restores the frosted panel
  * the rest of the app uses — same primitives, same visual language.
+ *
+ * The extra utilities settle a conflict rather than decorate: Card draws its
+ * own `ring-1` at a `rounded-xl` (12px) radius, while `.glass` rounds to 20px
+ * and draws a teal border. Left alone that renders as two mismatched outlines
+ * with the corners clipped by Card's `overflow-hidden`.
  */
-const GLASS = "glass border-transparent";
+const GLASS = "glass border-transparent ring-0 rounded-[var(--radius-lg)] p-4";
 
-function StatCard({ value, label, href }: { value: number | string; label: string; href?: string }) {
+function StatCard({
+  value,
+  label,
+  href,
+}: {
+  value: number | string;
+  label: string;
+  href?: string;
+}) {
   const body = (
-    <CardContent className="px-5 py-4">
-      <div className="font-[family-name:var(--font-display)] text-3xl font-extrabold leading-none text-[var(--teal-300)]">
-        {value}
+    <div className="flex h-full flex-col justify-center p-4">
+      <div className="flex p-4">
+        <CardTitle className="font-(family-name:--font-display) text-3xl font-extrabold leading-none text-(--teal-300)">
+          {value}
+        </CardTitle>
+        <div className="mt-1 text-xs tracking-wide text-muted-foreground">
+          {label}
+        </div>
       </div>
-      <div className="mt-1 text-xs tracking-wide text-muted-foreground">{label}</div>
-    </CardContent>
+    </div>
   );
 
   return (
-    <Card className={`${GLASS} min-w-[150px] flex-1 py-0 transition-transform hover:-translate-y-0.5`}>
+    <Card
+      className={`${GLASS} min-w-37.5 min-h-37.5 flex-1 py-0 transition-transform hover:-translate-y-0.5 p-10`}
+    >
       {href ? <Link href={href}>{body}</Link> : body}
     </Card>
   );
@@ -75,10 +105,17 @@ function Section({
   return (
     <Card className={GLASS}>
       <CardHeader>
-        <CardTitle className="font-[family-name:var(--font-display)] text-base">{title}</CardTitle>
+        <CardTitle className="font-(family-name:--font-display) text-base">
+          {title}
+        </CardTitle>
         {action && (
           <CardAction>
-            <Button asChild variant="link" size="sm" className="text-[var(--teal-400)]">
+            <Button
+              asChild
+              variant="link"
+              size="sm"
+              className="text-(--teal-400)"
+            >
               <Link href={action.href}>{action.label} →</Link>
             </Button>
           </CardAction>
@@ -90,13 +127,18 @@ function Section({
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="text-sm leading-relaxed text-muted-foreground">{children}</p>;
+  return (
+    <p className="text-sm leading-relaxed text-muted-foreground">{children}</p>
+  );
 }
 
 /** Reuses the established priority palette from globals.css. */
 function PriorityBadge({ value }: { value: string }) {
   return (
-    <Badge variant="outline" className={`badge-${value.toLowerCase()} border-transparent`}>
+    <Badge
+      variant="outline"
+      className={`badge-${value.toLowerCase()} border-transparent`}
+    >
       {value}
     </Badge>
   );
@@ -104,7 +146,10 @@ function PriorityBadge({ value }: { value: string }) {
 
 function StatusBadge({ value }: { value: string }) {
   return (
-    <Badge variant={isActiveJob(value) ? "secondary" : "outline"} className="font-medium">
+    <Badge
+      variant={isActiveJob(value) ? "secondary" : "outline"}
+      className="font-medium"
+    >
       {value.replace("_", " ")}
     </Badge>
   );
@@ -112,7 +157,7 @@ function StatusBadge({ value }: { value: string }) {
 
 function Money({ amount }: { amount: number }) {
   return (
-    <span className="font-[family-name:var(--font-display)] font-bold text-[var(--teal-300)]">
+    <span className="font-(family-name:--font-display) font-bold text-(--teal-300)">
       N${amount.toLocaleString()}
     </span>
   );
@@ -134,21 +179,34 @@ async function ClientDashboard() {
   return (
     <>
       <div className="mb-5 flex flex-wrap gap-3.5">
-        <StatCard value={openFaults.length} label="OPEN FAULTS" href="/fault-log" />
+        <StatCard
+          value={openFaults.length}
+          label="OPEN FAULTS"
+          href="/fault-log"
+        />
         <StatCard value={activeJobs.length} label="JOBS IN PROGRESS" />
-        <StatCard value={toSign.length} label="RECEIPTS TO SIGN" href="/receipts" />
+        <StatCard
+          value={toSign.length}
+          label="RECEIPTS TO SIGN"
+          href="/receipts"
+        />
       </div>
 
       <div className="flex flex-col gap-5">
         {/* First, because it is the only item here blocked on the client rather
             than on someone else. */}
         {toSign.length > 0 && (
-          <Section title="Needs your signature" action={{ href: "/receipts", label: "Go to receipts" }}>
+          <Section
+            title="Needs your signature"
+            action={{ href: "/receipts", label: "Go to receipts" }}
+          >
             <Table>
               <TableBody>
                 {toSign.slice(0, 5).map((r) => (
                   <TableRow key={r.id}>
-                    <TableCell className="font-medium">{r.job.fault.description}</TableCell>
+                    <TableCell className="font-medium">
+                      {r.job.fault.description}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">
                       {r.ref} · issued {formatDate(r.issuedAt)}
                     </TableCell>
@@ -162,11 +220,14 @@ async function ClientDashboard() {
           </Section>
         )}
 
-        <Section title="Your fault reports" action={{ href: "/fault-log", label: "Report a fault" }}>
+        <Section
+          title="Your fault reports"
+          action={{ href: "/fault-log", label: "Report a fault" }}
+        >
           {faults.length === 0 ? (
             <Empty>
-              You haven&apos;t reported any faults yet. Scan a QR code in a room, or use the report
-              form, and it will show up here.
+              You haven&apos;t reported any faults yet. Scan a QR code in a
+              room, or use the report form, and it will show up here.
             </Empty>
           ) : (
             <Table>
@@ -181,9 +242,13 @@ async function ClientDashboard() {
               <TableBody>
                 {faults.slice(0, 6).map((f) => (
                   <TableRow key={f.id}>
-                    <TableCell className="font-medium">{f.description}</TableCell>
+                    <TableCell className="font-medium">
+                      {f.description}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {f.location ? `${f.location.building} · ${f.location.room}` : "No location"}
+                      {f.location
+                        ? `${f.location.building} · ${f.location.room}`
+                        : "No location"}
                     </TableCell>
                     <TableCell>
                       <StatusBadge value={f.status} />
@@ -201,9 +266,9 @@ async function ClientDashboard() {
         <Section title="Your jobs">
           {jobs.length === 0 ? (
             <Empty>
-              No call-outs yet. Once you assign an electrician to one of your faults, the job appears
-              here.{" "}
-              <Link href="/technicians" className="text-[var(--teal-400)]">
+              No call-outs yet. Once you assign an electrician to one of your
+              faults, the job appears here.{" "}
+              <Link href="/technicians" className="text-(--teal-400)">
                 Find an electrician
               </Link>
               .
@@ -220,8 +285,12 @@ async function ClientDashboard() {
               <TableBody>
                 {jobs.slice(0, 6).map((j) => (
                   <TableRow key={j.id}>
-                    <TableCell className="font-medium">{j.fault.description}</TableCell>
-                    <TableCell className="text-muted-foreground">{j.electrician.user.name}</TableCell>
+                    <TableCell className="font-medium">
+                      {j.fault.description}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {j.electrician.user.name}
+                    </TableCell>
                     <TableCell className="text-right">
                       <StatusBadge value={j.status} />
                     </TableCell>
@@ -258,7 +327,7 @@ async function ElectricianDashboard() {
           availability toggle, so it goes above everything else. */}
       {!verification?.ntaVerified && (
         <Alert className="mb-5 border-[rgba(245,158,11,0.3)] bg-[rgba(245,158,11,0.06)]">
-          <AlertTitle className="font-[family-name:var(--font-display)] text-base font-bold">
+          <AlertTitle className="font-(family-name:--font-display) text-base font-bold">
             ⚠ Verification incomplete
           </AlertTitle>
           <AlertDescription className="mt-1 block leading-relaxed">
@@ -267,7 +336,9 @@ async function ElectricianDashboard() {
               : "Your electrician profile isn't set up yet. Add your NTA UID to start the verification process."}
             <Button asChild className="mt-4 w-fit">
               <Link href="/electrician/verification">
-                {verification?.ntaUid ? "Check verification status" : "Submit for verification"}
+                {verification?.ntaUid
+                  ? "Check verification status"
+                  : "Submit for verification"}
               </Link>
             </Button>
           </AlertDescription>
@@ -277,7 +348,11 @@ async function ElectricianDashboard() {
       <div className="mb-5 flex flex-wrap gap-3.5">
         <StatCard value={activeJobs.length} label="ACTIVE CALL-OUTS" />
         <StatCard value={completed.length} label="COMPLETED" />
-        <StatCard value={toSign.length} label="RECEIPTS TO SIGN" href="/receipts" />
+        <StatCard
+          value={toSign.length}
+          label="RECEIPTS TO SIGN"
+          href="/receipts"
+        />
         <StatCard
           value={verification?.isAvailable ? "Available" : "Busy"}
           label="STATUS"
@@ -286,7 +361,10 @@ async function ElectricianDashboard() {
       </div>
 
       <div className="flex flex-col gap-5">
-        <Section title="Your call-outs" action={{ href: "/certs", label: "Certificates" }}>
+        <Section
+          title="Your call-outs"
+          action={{ href: "/certs", label: "Certificates" }}
+        >
           {jobs.length === 0 ? (
             <Empty>
               No call-outs assigned yet.{" "}
@@ -307,9 +385,15 @@ async function ElectricianDashboard() {
               <TableBody>
                 {jobs.slice(0, 8).map((j) => (
                   <TableRow key={j.id}>
-                    <TableCell className="font-medium">{j.fault.description}</TableCell>
-                    <TableCell className="text-muted-foreground">{j.client.name}</TableCell>
-                    <TableCell className="text-muted-foreground">{formatDate(j.createdAt)}</TableCell>
+                    <TableCell className="font-medium">
+                      {j.fault.description}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {j.client.name}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {formatDate(j.createdAt)}
+                    </TableCell>
                     <TableCell className="text-right">
                       <StatusBadge value={j.status} />
                     </TableCell>
@@ -329,7 +413,9 @@ async function ElectricianDashboard() {
               <TableBody>
                 {toSign.slice(0, 5).map((r) => (
                   <TableRow key={r.id}>
-                    <TableCell className="font-medium">{r.job.fault.description}</TableCell>
+                    <TableCell className="font-medium">
+                      {r.job.fault.description}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">
                       {r.ref} · issued {formatDate(r.issuedAt)}
                     </TableCell>
@@ -372,7 +458,9 @@ async function AdminDashboard() {
             an admin acts. Oldest first. */}
         <Section title="Verification queue">
           {pending.length === 0 ? (
-            <Empty>Nothing waiting. Every submitted NTA UID has been reviewed.</Empty>
+            <Empty>
+              Nothing waiting. Every submitted NTA UID has been reviewed.
+            </Empty>
           ) : (
             <Table>
               <TableHeader>
@@ -388,15 +476,21 @@ async function AdminDashboard() {
                   <TableRow key={p.id}>
                     <TableCell>
                       <div className="font-medium">{p.user.name}</div>
-                      <div className="text-xs text-muted-foreground">{p.user.email}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {p.user.email}
+                      </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {p.ntaUid}
                       {p.wiremanLicense && (
-                        <div className="text-xs">licence {p.wiremanLicense}</div>
+                        <div className="text-xs">
+                          licence {p.wiremanLicense}
+                        </div>
                       )}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{formatDate(p.updatedAt)}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {formatDate(p.updatedAt)}
+                    </TableCell>
                     <TableCell className="text-right">
                       <VerifyButtons
                         profileId={p.id}
@@ -427,11 +521,17 @@ async function AdminDashboard() {
               <TableBody>
                 {unassigned.slice(0, 8).map((f) => (
                   <TableRow key={f.id}>
-                    <TableCell className="font-medium">{f.description}</TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {f.location ? `${f.location.building} · ${f.location.room}` : "No location"}
+                    <TableCell className="font-medium">
+                      {f.description}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{formatDate(f.createdAt)}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {f.location
+                        ? `${f.location.building} · ${f.location.room}`
+                        : "No location"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {formatDate(f.createdAt)}
+                    </TableCell>
                     <TableCell className="text-right">
                       <PriorityBadge value={f.priority} />
                     </TableCell>
@@ -458,8 +558,12 @@ async function AdminDashboard() {
               <TableBody>
                 {jobs.slice(0, 8).map((j) => (
                   <TableRow key={j.id}>
-                    <TableCell className="font-medium">{j.fault.description}</TableCell>
-                    <TableCell className="text-muted-foreground">{j.client.name}</TableCell>
+                    <TableCell className="font-medium">
+                      {j.fault.description}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {j.client.name}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">
                       {j.electrician.user.name}
                     </TableCell>
@@ -508,7 +612,7 @@ export default async function DashboardPage() {
             <header className="mb-8">
               <h1
                 id="dashboard-heading"
-                className="font-[family-name:var(--font-display)] text-[clamp(1.6rem,3vw,2.4rem)] font-extrabold"
+                className="font-(family-name:--font-display) text-[clamp(1.6rem,3vw,2.4rem)] font-extrabold"
               >
                 {user.name.split(" ")[0]}&apos;s dashboard
               </h1>
@@ -516,8 +620,8 @@ export default async function DashboardPage() {
                 {user.role === "ADMIN"
                   ? "Platform overview — verifications, unassigned faults and live jobs."
                   : user.role === "ELECTRICIAN"
-                    ? "Your call-outs, certificates and verification status."
-                    : "Your fault reports, call-outs and receipts."}
+                  ? "Your call-outs, certificates and verification status."
+                  : "Your fault reports, call-outs and receipts."}
               </p>
             </header>
 
