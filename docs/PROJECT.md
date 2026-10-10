@@ -387,6 +387,43 @@ has to be enforced **server-side**, not just by which buttons the UI renders.
 
 ## 10. Requested features
 
+### 10.0 Agreed build order
+
+Settled 2026-10-11. Each phase is shippable on its own, and the order is
+deliberate: the security boundary gets rewritten in phase 2, so the known bugs
+are cleared first rather than carried through it.
+
+**Phase 1 — clear the known issues (§9).** No new concepts, all of it small.
+
+- Google sign-in creates the `users` record, defaulting to role `CLIENT` (§9.1)
+- Cancelling a job frees its fault for reassignment (§9.2)
+- Electricians get a control to start and complete jobs (§9.3)
+- The **server** enforces valid job status transitions, not just the UI (§9.4)
+- The small items in §9.5
+- **Tests for the access checks** — the first tests in the project, aimed at
+  exactly the layer that has produced every bug found so far
+
+**Phase 2 — organisations (§10.2).** Organisations, memberships, buildings owned
+by an organisation, and a work/personal switcher. Colleagues in the same
+organisation see each other's faults, which is the capability the app lacks
+entirely today. Every server action gets an organisation-aware access check.
+
+> This phase *is* the security boundary. All 54 actions currently guard against
+> a single global role, and every scoped read assumes "mine = mine personally".
+> Budget for care, not speed.
+
+**Phase 3 — maintenance contracts (§10.1).** A fault at a building under
+contract can only be assigned to the contracted provider's technicians — and
+only to those assigned to that building, where such assignments exist. Enforced
+server-side, because filtering a dropdown protects nothing. Buildings with no
+contract keep today's open marketplace, which is what makes this additive.
+Admins get a screen to set contracts up.
+
+> Phase 3 delivers the client's intent but **not notifications** — those still
+> do not exist (see §10.1). Confirm with him whether restricting eligibility is
+> what he actually wants, or whether he is expecting push alerts too.
+
+
 ### 10.1 Maintenance contracts: route faults to a contracted provider
 
 **Client's request (26 Sep 2026):**
@@ -522,14 +559,12 @@ not account separation — it is **shared, org-scoped visibility**.
 
 This shares its entire foundation with §10.1. Do them together.
 
-### 10.3 Timing
+### 10.3 Why tenancy should not wait
 
-The cheapest moment to introduce tenancy is **now**, with a handful of users and
-near-zero data. Retrofitting organisation ownership onto thousands of existing
-faults and locations is the genuinely painful version. That said, it should not
-block the first deploy.
-
----
+The cheapest moment to introduce organisations is **now**, with a handful of
+users and near-zero data. Retrofitting organisation ownership onto thousands of
+existing faults and locations is the genuinely painful version. It should not
+block the first deploy, but it should not drift either.
 
 ## 11. Design decisions worth not re-litigating
 
