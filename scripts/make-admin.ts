@@ -20,7 +20,7 @@
  * before this.
  */
 import "dotenv/config";
-import { PrismaClient } from "../frontend/src/generated/prisma/client";
+import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 
 const email = process.argv[2]?.trim().toLowerCase();
@@ -37,8 +37,8 @@ const connectionString = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
 
 if (!connectionString) {
   console.error(
-    "Neither DIRECT_URL nor DATABASE_URL is set. Run this from the `prisma/` " +
-      "directory, where .env lives."
+    "Neither DIRECT_URL nor DATABASE_URL is set — expected it in .env at the\n" +
+      "repository root."
   );
   process.exit(1);
 }

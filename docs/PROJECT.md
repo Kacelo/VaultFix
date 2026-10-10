@@ -55,37 +55,50 @@ right now — a rendering bug and a data bug are currently indistinguishable.
 
 ## 3. Repository layout
 
+A conventional single-app Next.js repo. One package, schema beside it.
+
 ```
 VaultFix/
-├── docs/                        # this file, progress report
-├── package.json                 # STRAY: unused Supabase deps, no `next` (§9.5)
-└── prisma/
-    ├── package.json             # Prisma CLI + tsx + scripts
-    ├── prisma.config.ts         # Migrate config; uses DIRECT_URL
-    ├── scripts/make-admin.ts    # out-of-band admin bootstrap (§8)
-    └── prisma/
-    │   ├── schema.prisma        # the schema
-    │   └── migrations/          # init + enable_rls
-    └── frontend/                # ← THE NEXT.JS APP (Vercel Root Directory)
-        ├── src/app/             # routes
-        ├── src/components/      # Navbar, Footer, AccessNotice, ui/ (shadcn)
-        ├── src/lib/
-        │   ├── prisma.ts        # client singleton (pooled, globalThis-cached)
-        │   └── supabase/
-        │       ├── actions.ts   # ALL 54 server actions (~1,500 lines)
-        │       ├── server.ts    # cookie-based server client
-        │       ├── client.ts    # browser client
-        │       └── admin.ts     # service-role client (bypasses RLS)
-        └── src/proxy.ts         # Next 16 middleware: session refresh + route guard
+├── .env                    # DATABASE_URL, DIRECT_URL (gitignored)
+├── .env.local              # Supabase + app vars (gitignored)
+├── AGENTS.md / CLAUDE.md   # the Next.js 16 warning — read before writing code
+├── package.json            # the only package
+├── next.config.ts, tsconfig.json, postcss.config.mjs, components.json
+├── prisma.config.ts        # Migrate config; uses DIRECT_URL
+├── prisma/
+│   ├── schema.prisma
+│   └── migrations/         # init + enable_rls
+├── scripts/
+│   └── make-admin.ts       # out-of-band admin bootstrap (§8)
+├── docs/                   # this file, progress report, legacy landing mockup
+├── public/
+└── src/
+    ├── app/                # routes
+    ├── components/         # Navbar, Footer, AccessNotice, ui/ (shadcn)
+    ├── generated/          # Prisma client — BUILD ARTIFACT, gitignored
+    ├── lib/
+    │   ├── prisma.ts       # client singleton (pooled, globalThis-cached)
+    │   └── supabase/
+    │       ├── actions.ts  # ALL 54 server actions (~1,500 lines)
+    │       ├── server.ts   # cookie-based server client
+    │       ├── client.ts   # browser client
+    │       └── admin.ts    # service-role client (bypasses RLS)
+    └── proxy.ts            # Next 16 middleware: session refresh + route guard
 ```
 
-**The layout is inverted and it causes real friction.** The Next app lives
-*inside* a folder called `prisma/`, and the schema lives one level *above* the
-app. Consequences: Vercel needs Root Directory set to `prisma/frontend`, and the
-build must reach outside it (`--schema ../prisma/schema.prisma`). Worth
-restructuring eventually; not worth doing mid-deploy.
+> **This was flattened on 2026-10-10.** The app previously sat at
+> `prisma/frontend/` — inside a folder named after the ORM, with the schema one
+> level *above* it. That cost us three separate failures: Vercel inspecting the
+> wrong `package.json`, a build that had to reach outside its own root for the
+> schema, and `tsc` silently picking up a parent `tsconfig.json`. If you find a
+> reference to `prisma/frontend` anywhere, it is stale.
 
----
+### Node version
+
+There is no `.tool-versions` committed, and asdf has no version selected
+globally, so `pnpm` can fail with "No version is set for command node". Any
+Node 20.9+ works (Next 16's floor); 24.21.0 is what the current lockfile was
+installed and built with. Worth pinning if this trips anyone else up.
 
 ## 4. Architecture: where authority lives
 
@@ -235,10 +248,11 @@ role gate.
 
 ### Required settings
 
-- **Root Directory:** `prisma/frontend`. Without it the build inspects the stray
-  repo-root `package.json`, finds no `next`, and fails.
-- **Include files outside the Root Directory:** must be **enabled** — the build
-  reads `../prisma/schema.prisma`.
+- **Root Directory:** leave **blank** (the repository root). The app is at the
+  root as of 2026-10-10 — if this is still set to `prisma/frontend` from an
+  earlier deploy, the build will fail with "No Next.js version detected".
+- **Include files outside the Root Directory:** no longer needed. The build used
+  to reach up for the schema; it is now a sibling.
 
 ### Environment variables
 
@@ -258,7 +272,7 @@ more confusing failure than a missing `DATABASE_URL`.
 ### Build
 
 ```jsonc
-"build": "prisma generate --schema ../prisma/schema.prisma && next build"
+"build": "prisma generate --schema prisma/schema.prisma && next build"
 ```
 
 The generated client (`src/generated/prisma/`) is a **build artifact** and is
@@ -356,9 +370,6 @@ has to be enforced **server-side**, not just by which buttons the UI renders.
 
 ### 9.5 Smaller items
 
-- **Stray repo-root `package.json`/`package-lock.json`** — unused Supabase
-  deps, no `next`. This is what breaks Vercel framework detection when Root
-  Directory is unset. Safe to delete.
 - **`/about` 404s** from the navbar.
 - **The landing page's own "Get Started" CTA** still shows to signed-in users.
 - **`getAllElectricians` has no callers** and is an unauthenticated endpoint
