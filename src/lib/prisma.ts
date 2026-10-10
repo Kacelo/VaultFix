@@ -14,8 +14,10 @@ function createPrismaClient() {
 
   if (!connectionString) {
     throw new Error(
-      "DATABASE_URL is not set. Copy it from prisma/.env into " +
-        "prisma/frontend/.env.local — Next.js only loads env files from the app root."
+      "DATABASE_URL is not set. Locally it belongs in .env at the repository " +
+        "root; on a deployed environment set it as an environment variable. " +
+        "Note this is needed at BUILD time too — this client is constructed at " +
+        "module load, so collecting page data fails without it."
     );
   }
 

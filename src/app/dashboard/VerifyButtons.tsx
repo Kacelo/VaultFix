@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { verifyElectrician } from "@/lib/supabase/actions";
+import { Button } from "@/components/ui/button";
 
 /**
  * Approving an electrician is what unblocks them from working, so the queue is
@@ -42,40 +43,34 @@ export function VerifyButtons({
   }
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+    <div className="flex items-center justify-end gap-2">
       {error && (
-        <span role="alert" style={{ color: "#fca5a5", fontSize: "0.72rem", maxWidth: 180 }}>
+        <span role="alert" className="max-w-[180px] text-xs text-[#fca5a5]">
           {error}
         </span>
       )}
 
       {hasLicence && !wiremanVerified && (
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => approve("wireman")}
           disabled={busy !== null}
-          className="btn-outline"
-          style={{ padding: "0.35rem 0.75rem", fontSize: "0.75rem", cursor: busy ? "default" : "pointer" }}
         >
           {busy === "wireman" ? "…" : "Approve licence"}
-        </button>
+        </Button>
       )}
 
-      <button
+      <Button
         id={`approve-nta-${profileId}`}
         type="button"
+        size="sm"
         onClick={() => approve("nta")}
         disabled={busy !== null}
-        className="btn-primary"
-        style={{
-          padding: "0.35rem 0.875rem",
-          fontSize: "0.75rem",
-          cursor: busy ? "default" : "pointer",
-          opacity: busy ? 0.7 : 1,
-        }}
       >
         {busy === "nta" ? "Approving…" : "Approve NTA"}
-      </button>
+      </Button>
     </div>
   );
 }
