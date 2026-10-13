@@ -887,6 +887,21 @@ export async function createOrganisation(input: { name: string; ownerEmail?: str
   return organisation;
 }
 
+/** Every organisation, for platform administration screens. */
+export async function listAllOrganisations() {
+  await requireRole(["ADMIN"]);
+
+  return prisma.organisation.findMany({
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      _count: { select: { memberships: true, locations: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
 /** The organisations the caller belongs to — what the context switcher offers. */
 export async function listMyOrganisations() {
   const userId = await requireUserId();

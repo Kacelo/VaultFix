@@ -1,12 +1,14 @@
 import { headers } from "next/headers";
-import { getAllLocations } from "@/lib/supabase/actions";
+import { getAllLocations, listAllOrganisations } from "@/lib/supabase/actions";
 import { AccessNotice } from "@/components/AccessNotice";
 import { QrManager } from "./QrManager";
+import { OrganisationAdmin } from "./OrganisationAdmin";
 
 export const dynamic = "force-dynamic";
 
 export default async function QRCodeGeneratorPage() {
   let locations;
+  let organisations: Awaited<ReturnType<typeof listAllOrganisations>> = [];
 
   const headersList = await headers();
   const host = headersList.get("host");
@@ -14,7 +16,10 @@ export default async function QRCodeGeneratorPage() {
   const defaultBaseUrl = process.env.NEXT_PUBLIC_APP_URL || `${protocol}://${host}`;
 
   try {
-    locations = await getAllLocations();
+    [locations, organisations] = await Promise.all([
+      getAllLocations(),
+      listAllOrganisations(),
+    ]);
   } catch {
     // Every location action on this screen — read, create, update, delete —
     // requires ADMIN. Render the reason rather than a server error.
@@ -55,7 +60,14 @@ export default async function QRCodeGeneratorPage() {
             message="Log in with an administrator account to manage locations and print QR codes."
           />
         ) : (
-          <QrManager locations={locations} defaultBaseUrl={defaultBaseUrl} />
+          <>
+            <OrganisationAdmin organisations={organisations} />
+            <QrManager
+              locations={locations}
+              organisations={organisations}
+              defaultBaseUrl={defaultBaseUrl}
+            />
+          </>
         )}
       </div>
     </section>

@@ -4,7 +4,6 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   addOrganisationMember,
-  createOrganisation,
   listOrganisationMembers,
   removeOrganisationMember,
 } from "@/lib/supabase/actions";
@@ -23,7 +22,11 @@ type Member = {
 const MANAGES = ["OWNER", "MANAGER"];
 
 /**
- * Create an organisation, see who is in it, and add or remove colleagues.
+ * See who is in your organisations, and add or remove colleagues.
+ *
+ * Organisations themselves are created by the platform, not here: FaultFx
+ * registers a customer and their rooms, so self-serve creation would produce
+ * organisations with no buildings and no QR codes.
  *
  * Members load on expand rather than up front: the server component would
  * otherwise query every organisation's people on every dashboard render to
@@ -38,7 +41,6 @@ export function OrganisationsPanel({ organisations }: { organisations: Org[] }) 
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState("");
 
-  const [newName, setNewName] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [members, setMembers] = useState<Record<string, Member[]>>({});
   const [inviteEmail, setInviteEmail] = useState("");
@@ -76,9 +78,10 @@ export function OrganisationsPanel({ organisations }: { organisations: Org[] }) 
     <div className="flex flex-col gap-4">
       {organisations.length === 0 ? (
         <p className="text-sm leading-relaxed text-muted-foreground">
-          You don&apos;t belong to an organisation yet. Create one for your workplace and
-          colleagues will be able to see and act on each other&apos;s fault reports, instead of
-          each report being private to whoever logged it.
+          You don&apos;t belong to an organisation. Once FaultFx sets your workplace up and
+          registers its rooms, you&apos;ll be able to report faults against them from a
+          dropdown, and colleagues will see each other&apos;s reports instead of each one
+          being private to whoever logged it.
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -176,29 +179,6 @@ export function OrganisationsPanel({ organisations }: { organisations: Org[] }) 
           })}
         </ul>
       )}
-
-      <form
-        className="flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const name = newName.trim();
-          if (!name) return;
-          run(async () => {
-            await createOrganisation({ name });
-            setNewName("");
-          });
-        }}
-      >
-        <Input
-          id="new-organisation-name"
-          placeholder="New organisation name"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-        />
-        <Button type="submit" disabled={pending || !newName.trim()}>
-          {pending ? "Saving…" : "Create"}
-        </Button>
-      </form>
 
       {error && (
         <p role="alert" className="text-xs leading-relaxed text-[#fca5a5]">
