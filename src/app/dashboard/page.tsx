@@ -5,12 +5,14 @@ import {
   listBookableFaults,
   listFaultReports,
   listJobs,
+  listMyOrganisations,
   listPendingVerifications,
   listReceipts,
 } from "@/lib/supabase/actions";
 import { AccessNotice } from "@/components/AccessNotice";
 import { VerifyButtons } from "./VerifyButtons";
 import { JobStatusButtons } from "./JobStatusButtons";
+import { OrganisationsPanel } from "./OrganisationsPanel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,7 +20,6 @@ import {
   Card,
   CardAction,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -167,10 +168,11 @@ function Money({ amount }: { amount: number }) {
 /* ── Client ──────────────────────────────────────────────────────────────── */
 
 async function ClientDashboard() {
-  const [faults, jobs, receipts] = await Promise.all([
+  const [faults, jobs, receipts, organisations] = await Promise.all([
     listFaultReports(),
     listJobs(),
     listReceipts(),
+    listMyOrganisations(),
   ]);
 
   const openFaults = faults.filter((f) => f.status === "OPEN");
@@ -262,6 +264,10 @@ async function ClientDashboard() {
               </TableBody>
             </Table>
           )}
+        </Section>
+
+        <Section title="Organisations">
+          <OrganisationsPanel organisations={organisations} />
         </Section>
 
         <Section title="Your jobs">
