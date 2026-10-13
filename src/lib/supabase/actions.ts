@@ -241,6 +241,67 @@ export async function syncUserProfile(input: RegisterProfileInput) {
   });
 }
 
+/**
+ * Creates the relational `users` row for a signed-in auth account that has no
+ * row yet, defaulting to `CLIENT`.
+ *
+ * OAuth and magic-link sign-ins never pass through the register form, so they
+ * never called `syncUserProfile`. The result was a valid Supabase session with
+ * no database row at all: `getCurrentUser()` returned null, the dashboard told
+ * the user to sign in while they were signed in, and they had no role and no
+ * ability to do anything.
+ *
+ * Unlike `syncUserProfile` this one is **not** unauthenticated — it is called
+ * after a successful code exchange, so it can require a session and take the
+ * identity from the token rather than from its arguments. It takes no
+ * arguments at all, which is what makes it safe.
+ *
+ * Create-only by design: an existing row is returned untouched, so signing in
+ * with Google can never rewrite an electrician's or an admin's role.
+ */
+export async function ensureCurrentUserProfile() {
+  const userId = await requireUserId();
+
+  const existing = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true },
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.email) {
+    throw new Error("This account has no email address, so a profile cannot be created.");
+  }
+
+  const meta = user.user_metadata ?? {};
+  const named = [meta.full_name, meta.name].find(
+    (v): v is string => typeof v === "string" && v.trim().length > 0
+  );
+  const avatar = [meta.avatar_url, meta.picture].find(
+    (v): v is string => typeof v === "string" && v.trim().length > 0
+  );
+
+  return prisma.user.create({
+    data: {
+      id: userId,
+      email: user.email,
+      name: named?.trim() || user.email.split("@")[0],
+      avatarUrl: avatar ?? null,
+      // Everyone starts as a client. Becoming an electrician means completing
+      // the NTA flow; becoming an admin happens out of band (scripts/make-admin).
+      role: "CLIENT",
+    },
+    select: { id: true, role: true },
+  });
+}
+
 export async function signInWithGoogle() {
   const supabase = await createClient();
   const origin = await originUrl();
