@@ -9,7 +9,7 @@ const navLinks = [
   { href: "/technicians", label: "Find Electricians" },
   { href: "/fault-log", label: "Report Fault" },
   { href: "/certs", label: "Certifications" },
-  { href: "/about", label: "About" },
+  // No /about route exists yet; the link 404'd. Re-add it with the page.
 ];
 
 /**
