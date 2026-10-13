@@ -140,14 +140,16 @@ model FaultReport {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  job Job?
+  // A fault may accumulate a history of jobs: cancelling one has to leave the
+  // fault assignable again. "At most one ACTIVE job" is enforced in createJob.
+  jobs Job[]
 
   @@map("fault_reports")
 }
 
 model Job {
   id            String    @id @default(cuid())
-  faultId       String    @unique
+  faultId       String
   fault         FaultReport @relation(fields: [faultId], references: [id])
   clientId      String
   client        User      @relation("ClientJobs", fields: [clientId], references: [id])
@@ -164,6 +166,7 @@ model Job {
   receipt Receipt?
   review  Review?
 
+  @@index([faultId])
   @@map("jobs")
 }
 

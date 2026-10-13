@@ -814,7 +814,7 @@ export async function createFaultReport(input: {
 export async function getFaultReportByRef(ref: string) {
   return prisma.faultReport.findUnique({
     where: { ref },
-    include: { location: true, job: true },
+    include: { location: true, jobs: { orderBy: { createdAt: "desc" } } },
   });
 }
 
@@ -826,7 +826,10 @@ export async function getFaultReport(id: string) {
     include: {
       location: true,
       reporter: { select: { id: true, name: true, email: true } },
-      job: { include: { electrician: { include: { user: { select: { name: true } } } } } },
+      jobs: {
+        include: { electrician: { include: { user: { select: { name: true } } } } },
+        orderBy: { createdAt: "desc" },
+      },
     },
   });
 }
@@ -850,7 +853,7 @@ export async function listFaultReports(filters?: {
       ...(filters?.priority && { priority: filters.priority }),
       ...(filters?.locationId && { locationId: filters.locationId }),
     },
-    include: { location: true, job: { select: { id: true, status: true } } },
+    include: { location: true, jobs: { select: { id: true, status: true } } },
     orderBy: { createdAt: "desc" },
     take: filters?.take ?? 100,
   });
@@ -914,7 +917,9 @@ export async function listBookableFaults() {
 
   return prisma.faultReport.findMany({
     where: {
-      job: null,
+      // A cancelled job leaves the fault assignable, so only a LIVE job
+      // disqualifies it.
+      jobs: { none: { status: { not: "CANCELLED" } } },
       ...(caller.role === "CLIENT"
         ? { reporterId: caller.id }
         : { reporterId: { not: null } }),
@@ -947,13 +952,18 @@ export async function createJob(input: {
 
   const fault = await prisma.faultReport.findUnique({
     where: { id: input.faultId },
-    select: { id: true, reporterId: true, job: { select: { id: true } } },
+    select: {
+      id: true,
+      reporterId: true,
+      // Cancelled attempts are history, not a blocker.
+      jobs: { where: { status: { not: "CANCELLED" } }, select: { id: true } },
+    },
   });
 
   if (!fault) {
     throw new Error("Fault report not found.");
   }
-  if (fault.job) {
+  if (fault.jobs.length > 0) {
     throw new Error("This fault already has a job assigned.");
   }
   if (caller.role === "CLIENT" && fault.reporterId !== caller.id) {
@@ -1077,8 +1087,31 @@ export async function listJobs(filters?: { status?: JobStatus; take?: number }) 
  * job's timestamps in step. Only the assigned electrician (or an admin) may
  * progress work; the client may only cancel.
  */
+/**
+ * The legal job lifecycle. A job is accepted, started, then completed; it can
+ * be abandoned at any point before completion. Both end states are terminal.
+ *
+ * Enforced on the server rather than only by which buttons the UI renders:
+ * this action is a public POST endpoint, so hiding a control protects nothing.
+ * Without this a job could jump straight from PENDING to COMPLETED, or a
+ * finished job could be dragged back into progress.
+ */
+const JOB_TRANSITIONS: Record<JobStatus, readonly JobStatus[]> = {
+  PENDING: ["ACCEPTED", "CANCELLED"],
+  ACCEPTED: ["IN_PROGRESS", "CANCELLED"],
+  IN_PROGRESS: ["COMPLETED", "CANCELLED"],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
+/** `IN_PROGRESS` -> `in progress`, for error messages people have to read. */
+function readableStatus(status: JobStatus) {
+  return status.toLowerCase().replace("_", " ");
+}
+
 export async function updateJobStatus(jobId: string, status: JobStatus) {
-  const { caller, isClient, isElectrician } = await requireJobAccess(jobId);
+  const { caller, job: current, isClient, isElectrician } =
+    await requireJobAccess(jobId);
 
   if (status === "CANCELLED") {
     if (!isClient && !isElectrician && caller.role !== "ADMIN") {
@@ -1086,6 +1119,21 @@ export async function updateJobStatus(jobId: string, status: JobStatus) {
     }
   } else if (!isElectrician && caller.role !== "ADMIN") {
     throw new Error("Forbidden — only the assigned electrician can progress this job.");
+  }
+
+  // Idempotent: re-sending the status a job already has is a no-op rather than
+  // an error, so a double-clicked button does not surface a scary message.
+  if (current.status === status) {
+    return current;
+  }
+
+  if (!JOB_TRANSITIONS[current.status].includes(status)) {
+    const allowed = JOB_TRANSITIONS[current.status];
+    throw new Error(
+      allowed.length === 0
+        ? `This job is ${readableStatus(current.status)} and can no longer change.`
+        : `A ${readableStatus(current.status)} job cannot move to ${readableStatus(status)} — only to ${allowed.map(readableStatus).join(" or ")}.`
+    );
   }
 
   const faultStatus: Record<JobStatus, FaultStatus> = {
