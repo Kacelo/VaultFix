@@ -4,6 +4,7 @@ import {
   getMyVerificationStatus,
   listBookableFaults,
   listFaultReports,
+  listAllOrganisations,
   listJobs,
   listMyOrganisations,
   listPendingVerifications,
@@ -447,10 +448,11 @@ async function ElectricianDashboard() {
 /* ── Admin ───────────────────────────────────────────────────────────────── */
 
 async function AdminDashboard() {
-  const [pending, unassigned, jobs] = await Promise.all([
+  const [pending, unassigned, jobs, organisations] = await Promise.all([
     listPendingVerifications(),
     listBookableFaults(),
     listJobs(),
+    listAllOrganisations(),
   ]);
 
   const activeJobs = jobs.filter((j) => isActiveJob(j.status));
@@ -461,12 +463,60 @@ async function AdminDashboard() {
         <StatCard value={pending.length} label="AWAITING VERIFICATION" />
         <StatCard value={unassigned.length} label="UNASSIGNED FAULTS" />
         <StatCard value={activeJobs.length} label="ACTIVE JOBS" />
-        <StatCard value="QR" label="MANAGE LOCATIONS" href="/admin/qr-codes" />
+        <StatCard
+          value={organisations.length}
+          label="ORGANISATIONS"
+          href="/admin/qr-codes"
+        />
       </div>
 
       <div className="flex flex-col gap-5">
-        {/* First, because everyone in this queue is blocked from working until
-            an admin acts. Oldest first. */}
+        {/* Where a customer starts: without an organisation and its rooms,
+            their staff have nothing to report against. */}
+        <Section
+          title="Customers"
+          action={{ href: "/admin/qr-codes", label: "Add organisation or rooms" }}
+        >
+          {organisations.length === 0 ? (
+            <Empty>
+              No organisations yet. Register a customer, then add their rooms and print the
+              QR codes — their staff can then report faults against those rooms, and see
+              each other&apos;s reports.
+            </Empty>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Organisation</TableHead>
+                  <TableHead>Rooms</TableHead>
+                  <TableHead className="text-right">People</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {organisations.map((org) => (
+                  <TableRow key={org.id}>
+                    <TableCell className="font-medium">{org.name}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {org._count.locations === 0 ? (
+                        <span className="text-[var(--amber-400)]">
+                          no rooms yet
+                        </span>
+                      ) : (
+                        org._count.locations
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground">
+                      {org._count.memberships}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Section>
+
+        {/* Everyone in this queue is blocked from working until an admin acts.
+            Oldest first. */}
         <Section title="Verification queue">
           {pending.length === 0 ? (
             <Empty>
