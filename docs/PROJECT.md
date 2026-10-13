@@ -24,6 +24,8 @@
 | Mark a job complete | Electrician control shipped (§9.3) — unverified in UI |
 | Admin-side job assignment | **Not built** |
 | Organisations, memberships, work/personal switcher | Built (§10.2) — unverified in UI |
+| Admin registers customers + their rooms (QR) | Built — unverified in UI |
+| Org-scoped room dropdown for reporting | Built (§4) — unverified in UI |
 | Maintenance contracts | **Not built** (§10.1) |
 | Notifications of any kind | **Do not exist** (§10.1) |
 | Automated tests | 36, covering the authorization boundary (§12) |
@@ -152,8 +154,36 @@ deliberately **excludes** organisation faults, so "personal" means personal.
 
 **Fault ownership follows the building first.** A fault in an FNB stairwell is
 FNB's whoever reported it, including an anonymous QR scan; it falls back to the
-reporter's active context only when the building is unowned. That is the rule
-maintenance contracts (§10.1) will route on.
+reporter's active context only when there is no registered room. That is the
+rule maintenance contracts (§10.1) will route on.
+
+### The three ways to report a fault
+
+Enforced in `createFaultReport`, not just in the form:
+
+1. **A registered room, by id.** Either picked from the dropdown of your
+   organisation's rooms, or reached by scanning the QR code on the wall. The
+   physical sticker **is** the authorisation for the anonymous case — a visitor
+   should be able to report a dead socket in an FNB stairwell without an
+   account — and location ids are unguessable cuids. The fault lands with the
+   organisation that owns the room.
+2. **An address, signed in, with no registered room.** The homeowner booking an
+   electrician for their house. Stays unowned.
+3. **Neither — refused.** An anonymous report naming no place could never be
+   acted on.
+
+A stray address is discarded when a room was given, so the two can never
+disagree about where the fault is.
+
+**Who sets this up:** the platform registers a customer (an organisation, with
+a named owner) and then its rooms, each optionally owned by that organisation.
+Organisation creation is ADMIN-only — a self-served organisation would have no
+buildings and no QR codes. The owner manages their own people afterwards from
+their dashboard.
+
+**`listLocationsForReporting` is organisation-scoped**, and returns an empty
+list outside an organisation context. It previously returned every room on the
+platform to anybody, signed in or not — see §9.6.
 
 All of these are memoised with React `cache()` for the lifetime of one request.
 Before that, rendering a single page cost three separate Supabase auth calls.
@@ -417,6 +447,22 @@ complete, with cancellation available until completion and both end states
 terminal. Re-sending a job's current status is a no-op rather than an error, so
 a double-click is not alarming.
 
+### 9.6 ~~The room list exposed every customer's sites~~ — FIXED
+
+`listLocationsForReporting` was unauthenticated and unscoped: it returned
+**every room on the platform** to anyone. An FNB employee saw every other
+customer's buildings, and anyone at all could enumerate every customer's sites
+by calling the action directly.
+
+This was the gap that also made the organisation work fail to reach the
+reporting flow: with no room owned by anyone, "fault ownership follows the
+building" never fired.
+
+**Done:** scoped to the caller's active organisation, empty outside one. The
+anonymous QR path is unaffected because it resolves a *specific* room by id
+(`getLocation`) rather than listing — it is the list that leaked, not the
+lookup.
+
 ### 9.5 Smaller items
 
 - ~~**`/about` 404s** from the navbar~~ — link removed. Three dead links
@@ -455,9 +501,14 @@ input validation at the public boundary, and splitting actions.ts.
 - **Tests for the access checks** — the first tests in the project, aimed at
   exactly the layer that has produced every bug found so far
 
-**Phase 2 — organisations (§10.2).** Built on 2026-10-13: organisations,
-memberships, organisation-owned buildings, the work/personal switcher, and
-colleague-shared fault visibility. See §4 for the context rules.
+**Phase 2 — organisations (§10.2).** Built on 2026-10-13, corrected
+2026-10-14. Organisations, memberships, organisation-owned buildings, the
+work/personal switcher, colleague-shared fault visibility, admin registration
+of customers and their rooms, and the three reporting paths. See §4.
+
+The first pass scoped faults but not *rooms*, which is where the flow actually
+starts — worth remembering as a shape: attribution rules are useless until
+something feeds them.
 
 Outstanding in this phase: jobs, receipts and certificates are still scoped
 per person, not per organisation — a colleague cannot yet see the job raised
