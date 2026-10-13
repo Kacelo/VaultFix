@@ -15,17 +15,17 @@
 | Area | State |
 |---|---|
 | Public marketing site (`/`) | Working |
-| Registration / login (email+password, magic link, Google) | Working, **Google path broken** (§9.1) |
+| Registration / login (email+password, magic link, Google) | Working; the Google no-profile bug is fixed (§9.1) |
 | Electrician directory + profiles | Working, verified against live data |
 | Fault reporting (incl. anonymous QR flow) | Working |
 | Booking an electrician | Built, **not exercised against a real session** |
 | Role-aware dashboard (client / electrician / admin) | Built, **not exercised against a real session** |
 | NTA verification queue (admin, approvable in place) | Built, unverified |
-| Mark a job complete | **Backend done, no UI** (§9.3) |
+| Mark a job complete | Electrician control shipped (§9.3) — unverified in UI |
 | Admin-side job assignment | **Not built** |
 | Organisations / maintenance contracts | **Not built** (§10.1) |
 | Notifications of any kind | **Do not exist** (§10.1) |
-| Automated tests | **None** |
+| Automated tests | 20, covering the authorization boundary (§12) |
 
 The honest summary: the public, read-only surface is verified working. Most of
 the authenticated surface is written, typechecked and built, but has never been
@@ -324,9 +324,12 @@ anything reachable without a session.
 
 ## 9. Known issues
 
-Ordered by how much damage they do.
+**Phase 1 cleared §9.1 through §9.4 on 2026-10-13.** They are kept below with
+their resolutions, because the reasoning is worth having when the same shapes
+recur — particularly §9.2, which is now an application-level invariant rather
+than a database one.
 
-### 9.1 Google sign-in creates an account with no database row
+### 9.1 ~~Google sign-in creates an account with no database row~~ — FIXED
 
 `/auth/callback` exchanges the OAuth code and redirects, but **never calls
 `syncUserProfile`**. The result: a valid Supabase auth session with **no `users`
@@ -335,11 +338,15 @@ to sign in *while they are signed in*, and they have no role, no profile and no
 ability to do anything. The navbar now shows them a Dashboard button that leads
 to that dead end.
 
-**Fix:** have the callback upsert the profile after a successful exchange.
-Google provides no role, so it needs a role-selection step or a `CLIENT`
-default.
+**Done:** the callback now calls `ensureCurrentUserProfile()` after a
+successful exchange. That function requires a session and takes **no
+arguments**, reading identity from the token — the opposite of
+`syncUserProfile`, and what makes it safe. Create-only, so Google sign-in can
+never rewrite an existing electrician's or admin's role. New accounts default
+to `CLIENT`. The `?error=` codes the callback has always emitted are now
+displayed on the login page, where they were previously silent.
 
-### 9.2 Cancelling a job strands its fault forever
+### 9.2 ~~Cancelling a job strands its fault forever~~ — FIXED
 
 `Job.faultId` is `@unique` and `createJob` refuses when `fault.job` exists.
 Cancelling sets the **fault** back to `OPEN` — which reads as "available
@@ -347,30 +354,43 @@ again" — but the `Job` row remains, so **that fault can never be assigned to
 anyone, ever.** The fault looks open indefinitely and every booking attempt
 fails with "This fault already has a job assigned."
 
-**Fix options:** delete the job row on cancellation, or drop the `@unique` on
-`faultId` and scope the "already assigned" check to non-cancelled jobs. The
-second is better history-keeping; the first is a smaller change.
+**Done:** took the history-keeping option. `FaultReport.jobs` is now a list,
+the unique index is a plain one, and `createJob` ignores cancelled rows.
 
-### 9.3 No UI to progress or complete a job
+> **Carry this forward:** "at most one ACTIVE job per fault" is now enforced in
+> application code, not by the database. A partial unique index
+> (`WHERE status <> 'CANCELLED'`) would be stronger, but Prisma cannot express
+> one in the schema and reports it as drift on every later migrate. Two
+> concurrent `createJob` calls for one fault could therefore both succeed.
+
+### 9.3 ~~No UI to progress or complete a job~~ — FIXED
 
 `updateJobStatus` is complete and correct — transactional, stamps
 `startedAt`/`completedAt`, moves the fault to `RESOLVED`, and only lets the
 assigned electrician or an admin progress a job (a client may only cancel).
 **Nothing in the UI calls it.** The capability exists only as a POST endpoint.
 
-Natural home: a per-row status control in the electrician dashboard's
-"Your call-outs" table.
+**Done:** each call-out in the electrician dashboard offers exactly one forward
+step — Accept, Start work, Mark complete — plus Cancel until completion.
+Terminal states offer nothing. Labels live in the UI; `JOB_TRANSITIONS` in
+actions.ts remains the authority.
 
-### 9.4 No job status transition validation
+### 9.4 ~~No job status transition validation~~ — FIXED
 
-`updateJobStatus` accepts any status from any status. A job can jump
-`PENDING → COMPLETED` without ever being `IN_PROGRESS`, and a completed job can
-be moved backwards. Because the action is a public endpoint, the state machine
-has to be enforced **server-side**, not just by which buttons the UI renders.
+`updateJobStatus` accepted any status from any status: a job could jump
+`PENDING → COMPLETED` unworked, or a completed job be dragged backwards.
+
+**Done:** `JOB_TRANSITIONS` enforces the lifecycle server-side — accept, start,
+complete, with cancellation available until completion and both end states
+terminal. Re-sending a job's current status is a no-op rather than an error, so
+a double-click is not alarming.
 
 ### 9.5 Smaller items
 
-- **`/about` 404s** from the navbar.
+- ~~**`/about` 404s** from the navbar~~ — link removed. Three dead links
+  remain by choice: `/forgot-password`, `/privacy` and `/terms`. Those are a
+  missing feature and missing legal pages, not stray markup; deleting the links
+  would hide real gaps.
 - **The landing page's own "Get Started" CTA** still shows to signed-in users.
 - **`getAllElectricians` has no callers** and is an unauthenticated endpoint
   returning the whole table. Deleting it would reduce attack surface.
@@ -380,8 +400,6 @@ has to be enforced **server-side**, not just by which buttons the UI renders.
   would help.
 - **`actions.ts` is ~1,500 lines.** Domain sections are already marked; the
   split is mechanical.
-- **No tests at all.** The app's correctness is overwhelmingly authorization
-  logic, which is exactly what tests would protect.
 
 ---
 
@@ -393,7 +411,9 @@ Settled 2026-10-11. Each phase is shippable on its own, and the order is
 deliberate: the security boundary gets rewritten in phase 2, so the known bugs
 are cleared first rather than carried through it.
 
-**Phase 1 — clear the known issues (§9).** No new concepts, all of it small.
+**Phase 1 — clear the known issues (§9).** Largely done on 2026-10-13: §9.1
+through §9.4 are fixed and the authorization boundary has tests. Outstanding:
+input validation at the public boundary, and splitting actions.ts.
 
 - Google sign-in creates the `users` record, defaulting to role `CLIENT` (§9.1)
 - Cancelling a job frees its fault for reassignment (§9.2)
@@ -611,6 +631,11 @@ three queries in one batch (~640ms).
 
 Be precise about this, because much of the app has never been run by a human.
 
+**Covered by tests (`pnpm test`):** 20 tests over the authorization boundary —
+signed-out rejection, role gates, `syncUserProfile`'s role allowlist,
+`createJob`'s four refusals, the job lifecycle, and fault ownership. Supabase,
+Prisma and `next/*` are mocked so the real guard logic runs.
+
 **Verified against live data:**
 - Public pages return 200; the directory renders and filters correctly.
 - `/technicians/[id]` renders, and a bad id returns a real HTTP 404.
@@ -620,6 +645,10 @@ Be precise about this, because much of the app has never been run by a human.
 - A clean `git clone` + install + build succeeds (this is what Vercel does).
 - shadcn tokens resolve to the FaultFx palette with no white leakage.
 - `make-admin` connects, queries and reports correctly for a missing address.
+- Cancelling a job frees its fault: exercised end to end against the live
+  database inside a rolled-back transaction — unbookable while the job is
+  live, bookable once cancelled, and a second job can then be created. Zero
+  rows persisted.
 
 **Built and typechecked but never exercised with a real session:**
 - Registration — *and it changed*; it now requires `SUPABASE_SERVICE_ROLE_KEY`.
@@ -627,6 +656,7 @@ Be precise about this, because much of the app has never been run by a human.
 - The booking form on a technician's profile.
 - The signed-in navbar (identity, Dashboard, sign out).
 - The admin verification queue's approve buttons.
+- The new job status control (Accept / Start work / Mark complete).
 - `make-admin`'s actual promotion branch (it writes to production data).
 
 **Next action, before building anything further:** create an admin with
