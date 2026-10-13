@@ -23,9 +23,10 @@
 | NTA verification queue (admin, approvable in place) | Built, unverified |
 | Mark a job complete | Electrician control shipped (§9.3) — unverified in UI |
 | Admin-side job assignment | **Not built** |
-| Organisations / maintenance contracts | **Not built** (§10.1) |
+| Organisations, memberships, work/personal switcher | Built (§10.2) — unverified in UI |
+| Maintenance contracts | **Not built** (§10.1) |
 | Notifications of any kind | **Do not exist** (§10.1) |
-| Automated tests | 20, covering the authorization boundary (§12) |
+| Automated tests | 36, covering the authorization boundary (§12) |
 
 The honest summary: the public, read-only surface is verified working. Most of
 the authenticated surface is written, typechecked and built, but has never been
@@ -127,6 +128,32 @@ Both vulnerabilities found and fixed in `5bb9928` were this exact mistake.
 | `requireRole([...])` | Throws unless the caller's **database** role matches |
 | `requireElectricianProfileId()` | Caller's electrician profile, or throws |
 | `requireJobAccess(jobId)` | Caller is the job's client, its electrician, or admin |
+| `getActiveOrganisationId()` | The org the caller is acting as, or null for personal |
+| `requireOrgRole(orgId, roles)` | Throws unless the caller holds one of `roles` in that org |
+
+### Organisation context — read this before touching it
+
+The active context is held in an **httpOnly cookie**, and that cookie only
+**selects** a context; it never **grants** one. Whatever it claims is checked
+against the `memberships` table on **every request**, so a forged, stale or
+copied cookie resolves to personal rather than to someone else's
+organisation. `access.test.ts` asserts exactly this.
+
+`requireOrgRole` is the only way to assert organisation access. Platform
+`ADMIN`s get **no implicit bypass** — running the platform is not the same as
+being inside a customer's account, and a silent bypass would make every
+org-scoped check untrustworthy. Where admins need to see across
+organisations, the read says so explicitly.
+
+Fault visibility goes through one predicate, `visibleFaultFilter`: staff see
+everything; a client sees either their own personal faults or everything
+belonging to the organisation they are acting as. Personal context
+deliberately **excludes** organisation faults, so "personal" means personal.
+
+**Fault ownership follows the building first.** A fault in an FNB stairwell is
+FNB's whoever reported it, including an anonymous QR scan; it falls back to the
+reporter's active context only when the building is unowned. That is the rule
+maintenance contracts (§10.1) will route on.
 
 All of these are memoised with React `cache()` for the lifetime of one request.
 Before that, rendering a single page cost three separate Supabase auth calls.
@@ -151,14 +178,15 @@ a guard or a written justification for why it is public.
 
 ## 5. Data model
 
-Models: `User`, `ElectricianProfile`, `Location`, `FaultReport`, `Job`,
-`Certificate`, `Review`, `Receipt`, `Subscription`.
+Models: `User`, `Organisation`, `Membership`, `ElectricianProfile`, `Location`,
+`FaultReport`, `Job`, `Certificate`, `Review`, `Receipt`, `Subscription`.
 
 ### Enums
 
 | Enum | Values |
 |---|---|
-| `Role` | `CLIENT`, `ELECTRICIAN`, `ADMIN` |
+| `Role` | `CLIENT`, `ELECTRICIAN`, `ADMIN` (platform-wide) |
+| `OrgRole` | `OWNER`, `MANAGER`, `MEMBER` (within one organisation) |
 | `FaultPriority` | `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` |
 | `FaultStatus` | `OPEN`, `ASSIGNED`, `IN_PROGRESS`, `RESOLVED`, `CLOSED` |
 | `JobStatus` | `PENDING`, `ACCEPTED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED` |
@@ -180,8 +208,12 @@ can and cannot do:
 - **`Job.faultId`** — **one job per fault, forever.** This single constraint is
   the root of the cancellation bug in §9.2.
 - `Review.jobId`, `Receipt.jobId` — one each per job.
-- `Subscription.userId` — **billing is per person, not per organisation.**
-  Relevant to §10.
+- `Membership` is unique on `(userId, organisationId)` — one standing per
+  person per organisation.
+- `Organisation.slug` is unique; `createOrganisation` falls back to a suffixed
+  slug so similarly-named organisations do not block each other.
+- `Subscription.userId` — **billing is still per person, not per
+  organisation.** Unresolved, and §10.1 will force the question.
 
 ### Core flow
 
@@ -423,10 +455,14 @@ input validation at the public boundary, and splitting actions.ts.
 - **Tests for the access checks** — the first tests in the project, aimed at
   exactly the layer that has produced every bug found so far
 
-**Phase 2 — organisations (§10.2).** Organisations, memberships, buildings owned
-by an organisation, and a work/personal switcher. Colleagues in the same
-organisation see each other's faults, which is the capability the app lacks
-entirely today. Every server action gets an organisation-aware access check.
+**Phase 2 — organisations (§10.2).** Built on 2026-10-13: organisations,
+memberships, organisation-owned buildings, the work/personal switcher, and
+colleague-shared fault visibility. See §4 for the context rules.
+
+Outstanding in this phase: jobs, receipts and certificates are still scoped
+per person, not per organisation — a colleague cannot yet see the job raised
+off a shared fault. `Job` has no `organisationId`; it is derivable through
+`fault.organisationId`, which is the likely fix.
 
 > This phase *is* the security boundary. All 54 actions currently guard against
 > a single global role, and every scoped read assumes "mine = mine personally".
@@ -565,19 +601,20 @@ person. If FNB or VoltCore pays, subscriptions belong to the organisation.
 **Stakeholder's request:** a NamWater employee uses the app for facilities
 maintenance at work *and* to book an electrician for their own home.
 
-**Recommendation: one identity, many contexts — not two accounts.** Same login,
-a workspace switcher ("NamWater" / "Personal"), and each fault records which
-context it was raised in. Two literal accounts works today with zero code
-(`email @unique` means two email addresses) but gives two passwords, no
-switching, and no shared visibility.
+**Done — one identity, many contexts, not two accounts.** Same login, a
+switcher in the navbar, and each fault records the context it was raised in.
+A `Membership` row per organisation; `email @unique` is untouched, so nobody
+needs a second address.
 
-**What they may not have realised:** FaultFx cannot do organisational facilities
-maintenance *at all* right now, regardless of account separation.
-`listFaultReports` scopes a client to `reporterId = caller.id`, so a NamWater
-facilities manager cannot see a fault a colleague logged. The missing piece is
-not account separation — it is **shared, org-scoped visibility**.
+The answer to give the stakeholder: yes, one login with a workspace switcher.
 
-This shares its entire foundation with §10.1. Do them together.
+The capability that was actually missing — **shared, org-scoped
+visibility** — is the part that now works: in an organisation context a client
+sees every fault belonging to it, not just their own. `listFaultReports`,
+`listBookableFaults` and `getFaultReport` all route through
+`visibleFaultFilter`.
+
+§10.1 builds directly on this foundation.
 
 ### 10.3 Why tenancy should not wait
 
@@ -631,7 +668,11 @@ three queries in one batch (~640ms).
 
 Be precise about this, because much of the app has never been run by a human.
 
-**Covered by tests (`pnpm test`):** 20 tests over the authorization boundary —
+**Covered by tests (`pnpm test`):** 36 tests over the authorization boundary —
+including that a cookie naming an organisation the caller does not belong to
+falls back to personal scope, that a plain member cannot add colleagues or
+rewrite their reports, that a manager cannot mint owners, that the last owner
+cannot be removed, and that fault ownership follows the building —
 signed-out rejection, role gates, `syncUserProfile`'s role allowlist,
 `createJob`'s four refusals, the job lifecycle, and fault ownership. Supabase,
 Prisma and `next/*` are mocked so the real guard logic runs.
@@ -649,6 +690,10 @@ Prisma and `next/*` are mocked so the real guard logic runs.
   database inside a rolled-back transaction — unbookable while the job is
   live, bookable once cancelled, and a second job can then be created. Zero
   rows persisted.
+- The organisation schema, likewise: creating an organisation grants its
+  creator an OWNER membership atomically, a building can be owned by it, an
+  org-scoped read sees a *colleague's* fault, and a personal-scoped read does
+  not. Zero rows persisted.
 
 **Built and typechecked but never exercised with a real session:**
 - Registration — *and it changed*; it now requires `SUPABASE_SERVICE_ROLE_KEY`.
@@ -657,6 +702,7 @@ Prisma and `next/*` are mocked so the real guard logic runs.
 - The signed-in navbar (identity, Dashboard, sign out).
 - The admin verification queue's approve buttons.
 - The new job status control (Accept / Start work / Mark complete).
+- The context switcher and the organisations panel, end to end in a browser.
 - `make-admin`'s actual promotion branch (it writes to production data).
 
 **Next action, before building anything further:** create an admin with
