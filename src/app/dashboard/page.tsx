@@ -10,6 +10,7 @@ import {
 } from "@/lib/supabase/actions";
 import { AccessNotice } from "@/components/AccessNotice";
 import { VerifyButtons } from "./VerifyButtons";
+import { JobStatusButtons } from "./JobStatusButtons";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -379,7 +380,8 @@ async function ElectricianDashboard() {
                   <TableHead>Fault</TableHead>
                   <TableHead>Client</TableHead>
                   <TableHead>Raised</TableHead>
-                  <TableHead className="text-right">Status</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -394,8 +396,11 @@ async function ElectricianDashboard() {
                     <TableCell className="text-muted-foreground">
                       {formatDate(j.createdAt)}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell>
                       <StatusBadge value={j.status} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <JobStatusButtons jobId={j.id} status={j.status} />
                     </TableCell>
                   </TableRow>
                 ))}
