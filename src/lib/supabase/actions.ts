@@ -888,6 +888,36 @@ export async function listMyOrganisations() {
   return memberships.map((m) => ({ ...m.organisation, role: m.role }));
 }
 
+/**
+ * Everything the context switcher needs, in one round trip.
+ *
+ * The navbar reads this from the browser rather than having it passed down
+ * from the root layout, for the same reason it reads the session there: a
+ * cookie read in the root layout would opt every static page into per-request
+ * rendering. Returns an empty list when signed out rather than throwing, since
+ * the navbar renders for everyone.
+ */
+export async function getOrganisationContext() {
+  const userId = await getSessionUserId();
+  if (!userId) {
+    return { organisations: [], activeId: null };
+  }
+
+  const [memberships, activeId] = await Promise.all([
+    prisma.membership.findMany({
+      where: { userId },
+      select: { role: true, organisation: { select: { id: true, name: true } } },
+      orderBy: { organisation: { name: "asc" } },
+    }),
+    getActiveOrganisationId(),
+  ]);
+
+  return {
+    organisations: memberships.map((m) => ({ ...m.organisation, role: m.role })),
+    activeId,
+  };
+}
+
 /** The caller's active context, for rendering the switcher's current state. */
 export async function getActiveOrganisation() {
   const organisationId = await getActiveOrganisationId();

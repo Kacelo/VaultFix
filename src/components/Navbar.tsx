@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { ContextSwitcher } from "@/components/ContextSwitcher";
 
 const navLinks = [
   { href: "/technicians", label: "Find Electricians" },
@@ -207,6 +208,8 @@ export function Navbar() {
               <div aria-hidden style={{ width: 212, height: 38 }} />
             ) : user ? (
               <>
+                {/* Renders nothing unless this person belongs to an org. */}
+                <ContextSwitcher />
                 <span
                   style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}
                 >
@@ -376,6 +379,9 @@ export function Navbar() {
             >
               {user === undefined ? null : user ? (
                 <>
+                  <div className="px-3 pb-2">
+                    <ContextSwitcher />
+                  </div>
                   <div
                     style={{
                       display: "flex",
