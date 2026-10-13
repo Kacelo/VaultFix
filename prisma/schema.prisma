@@ -189,6 +189,10 @@ model FaultReport {
   reporterId  String?
   reporter    User?         @relation("ReporterFaults", fields: [reporterId], references: [id])
   reporterName String?      // for anonymous reports
+  // Where the fault is, when it is NOT at a registered room. Required for a
+  // personal report (someone's own home); null for org and QR reports, which
+  // identify the place by locationId instead.
+  address     String?
   // null = a personal fault. Set from the building's owner when it has one,
   // otherwise from the reporter's active context.
   organisationId String?

@@ -486,7 +486,12 @@ describe("createFaultReport organisation stamping", () => {
     signInAs("CLIENT");
     prismaMock.faultReport.create.mockResolvedValue({ id: "f1" });
 
-    await actions.createFaultReport({ description: "My kitchen plug" });
+    // An address is now required when there is no registered room; see the
+    // reporting-paths suite below.
+    await actions.createFaultReport({
+      description: "My kitchen plug",
+      address: "12 Nelson Mandela Ave",
+    });
 
     expect(prismaMock.faultReport.create.mock.calls[0][0].data).toMatchObject({
       organisationId: null,
@@ -522,5 +527,145 @@ describe("updateFaultReport in an organisation", () => {
     await expect(
       actions.updateFaultReport("f1", { description: "Nope" })
     ).rejects.toThrow(/faults you reported/);
+  });
+});
+
+// ── The three reporting paths ───────────────────────────────────────────────
+describe("who may report a fault, and where", () => {
+  it("refuses an anonymous report that names no place at all", async () => {
+    signOut();
+    await expect(
+      actions.createFaultReport({ description: "something is broken" })
+    ).rejects.toThrow(/Scan the QR code|sign in/i);
+    expect(prismaMock.faultReport.create).not.toHaveBeenCalled();
+  });
+
+  it("allows an anonymous report against a scanned room", async () => {
+    signOut();
+    prismaMock.location.findUnique.mockResolvedValue({ organisationId: ORG_ID });
+    prismaMock.faultReport.create.mockResolvedValue({ id: "f1" });
+
+    await actions.createFaultReport({
+      description: "Dead socket",
+      locationId: "loc-1",
+      reporterName: "Passing visitor",
+    });
+
+    // The sticker on the wall is the authorisation, and the fault still lands
+    // with the organisation that owns the room.
+    expect(prismaMock.faultReport.create.mock.calls[0][0].data).toMatchObject({
+      organisationId: ORG_ID,
+      reporterName: "Passing visitor",
+      reporterId: null,
+    });
+  });
+
+  it("makes a signed-in reporter give an address when there is no room", async () => {
+    signInAs("CLIENT");
+    await expect(
+      actions.createFaultReport({ description: "Kitchen plug dead" })
+    ).rejects.toThrow(/pick a room or give an address/i);
+  });
+
+  it("accepts a personal report at an address, unowned", async () => {
+    signInAs("CLIENT");
+    prismaMock.faultReport.create.mockResolvedValue({ id: "f1" });
+
+    await actions.createFaultReport({
+      description: "Kitchen plug dead",
+      address: "12 Nelson Mandela Ave, Windhoek",
+    });
+
+    expect(prismaMock.faultReport.create.mock.calls[0][0].data).toMatchObject({
+      address: "12 Nelson Mandela Ave, Windhoek",
+      organisationId: null,
+      locationId: null,
+    });
+  });
+
+  it("drops a stray address when a room was given", async () => {
+    signInAs("CLIENT");
+    prismaMock.location.findUnique.mockResolvedValue({ organisationId: null });
+    prismaMock.faultReport.create.mockResolvedValue({ id: "f1" });
+
+    await actions.createFaultReport({
+      description: "Flickering",
+      locationId: "loc-1",
+      address: "ignored",
+    });
+
+    // The room already says where; two answers would disagree eventually.
+    expect(prismaMock.faultReport.create.mock.calls[0][0].data).toMatchObject({
+      address: null,
+    });
+  });
+});
+
+// ── The room dropdown must not leak other customers' sites ─────────────────
+describe("listLocationsForReporting", () => {
+  it("gives a signed-out caller nothing", async () => {
+    signOut();
+    await expect(actions.listLocationsForReporting()).resolves.toEqual([]);
+    expect(prismaMock.location.findMany).not.toHaveBeenCalled();
+  });
+
+  it("gives a caller in personal context nothing", async () => {
+    signInAs("CLIENT");
+    await expect(actions.listLocationsForReporting()).resolves.toEqual([]);
+    expect(prismaMock.location.findMany).not.toHaveBeenCalled();
+  });
+
+  it("returns only the active organisation's rooms", async () => {
+    signInAs("CLIENT");
+    actingAsOrg("MEMBER");
+    prismaMock.location.findMany.mockResolvedValue([]);
+
+    await actions.listLocationsForReporting();
+
+    expect(prismaMock.location.findMany.mock.calls[0][0].where).toEqual({
+      organisationId: ORG_ID,
+    });
+  });
+
+  it("ignores a cookie naming an organisation the caller is not in", async () => {
+    signInAs("CLIENT");
+    actingAsStranger();
+    await expect(actions.listLocationsForReporting()).resolves.toEqual([]);
+    expect(prismaMock.location.findMany).not.toHaveBeenCalled();
+  });
+});
+
+// ── Organisations are created by the platform ──────────────────────────────
+describe("createOrganisation", () => {
+  it("is closed to clients", async () => {
+    signInAs("CLIENT");
+    await expect(actions.createOrganisation({ name: "FNB Namibia" })).rejects.toThrow(
+      /requires role ADMIN/
+    );
+  });
+
+  it("installs an owner so the organisation is administrable", async () => {
+    signInAs("ADMIN", "admin-1");
+    prismaMock.organisation.findUnique.mockResolvedValue(null);
+    prismaMock.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+      fn({
+        organisation: {
+          findUnique: async () => null,
+          create: async (args: { data: { memberships: { create: { userId: string; role: string } } } }) => ({
+            id: "org-1",
+            name: "FNB Namibia",
+            slug: "fnb-namibia",
+            _owner: args.data.memberships.create,
+          }),
+        },
+      })
+    );
+
+    const org = await actions.createOrganisation({ name: "FNB Namibia" });
+    expect(org).toMatchObject({ slug: "fnb-namibia" });
+    expect((org as unknown as { _owner: { role: string } })._owner).toMatchObject({
+      role: "OWNER",
+      userId: "admin-1",
+    });
   });
 });

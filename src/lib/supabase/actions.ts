@@ -837,8 +837,8 @@ export async function verifyElectrician(
  * Creates an organisation and makes the caller its first OWNER, in one
  * transaction — an organisation nobody can administer would be unusable.
  */
-export async function createOrganisation(input: { name: string }) {
-  const userId = await requireUserId();
+export async function createOrganisation(input: { name: string; ownerEmail?: string }) {
+  const admin = await requireRole(["ADMIN"]);
 
   const name = input.name?.trim();
   if (!name) {
@@ -848,6 +848,21 @@ export async function createOrganisation(input: { name: string }) {
   const base = slugify(name);
   if (!base) {
     throw new Error("That name cannot be turned into a web address. Use some letters or numbers.");
+  }
+
+  // An organisation with no owner cannot be administered and nothing in the
+  // app could repair it, so one is always installed. Normally the customer's
+  // own contact; the creating admin only as a fallback.
+  let ownerId = admin.id;
+  if (input.ownerEmail?.trim()) {
+    const owner = await prisma.user.findFirst({
+      where: { email: { equals: input.ownerEmail.trim().toLowerCase(), mode: "insensitive" } },
+      select: { id: true },
+    });
+    if (!owner) {
+      throw new Error("No FaultFx account uses that email address. Ask them to sign up first.");
+    }
+    ownerId = owner.id;
   }
 
   const organisation = await prisma.$transaction(async (tx) => {
@@ -862,7 +877,7 @@ export async function createOrganisation(input: { name: string }) {
       data: {
         name,
         slug,
-        memberships: { create: { userId, role: "OWNER" } },
+        memberships: { create: { userId: ownerId, role: "OWNER" } },
       },
       select: { id: true, name: true, slug: true },
     });
@@ -1110,12 +1125,25 @@ export async function getAllLocations() {
 }
 
 /**
- * Public, and deliberately narrower than `getAllLocations`: anyone reporting a
- * fault has to be able to name their room without an account, but they have no
- * business seeing qrUrl or internal descriptions. Returns identifiers only.
+ * The rooms the caller may pick from when reporting — their active
+ * organisation's, and nothing else.
+ *
+ * This used to return EVERY room on the platform to anybody, signed in or not,
+ * which both showed an FNB employee other customers' buildings and let anyone
+ * enumerate every customer's sites. Narrower than `getAllLocations` still: no
+ * `qrUrl`, no internal descriptions.
+ *
+ * Returns an empty list rather than throwing when there is no organisation
+ * context, because "you have no rooms to choose from" is a state the reporting
+ * page renders rather than an error. Someone with no organisation reports by
+ * scanning a QR code or by giving their own address instead.
  */
 export async function listLocationsForReporting() {
+  const organisationId = await getActiveOrganisationId();
+  if (!organisationId) return [];
+
   return prisma.location.findMany({
+    where: { organisationId },
     select: { id: true, building: true, room: true },
     orderBy: [{ building: "asc" }, { room: "asc" }],
   });
@@ -1160,6 +1188,7 @@ export async function createFaultReport(input: {
   priority?: FaultPriority;
   locationId?: string;
   reporterName?: string;
+  address?: string;
   photoUrls?: string[];
 }) {
   if (!input.description?.trim()) {
@@ -1167,15 +1196,42 @@ export async function createFaultReport(input: {
   }
 
   const userId = await getSessionUserId();
+  const locationId = input.locationId || null;
+  const address = input.address?.trim() || null;
+
+  /**
+   * There are exactly three ways to report a fault, and nothing else is
+   * allowed through:
+   *
+   *  1. A registered room, by id. Either picked from the dropdown of your
+   *     organisation's rooms, or reached by scanning the QR code on the wall.
+   *     The physical sticker IS the authorisation for the anonymous case —
+   *     a visitor in an FNB stairwell should be able to report a dead socket
+   *     without an account — and location ids are unguessable cuids.
+   *  2. Your own address, signed in, with no registered room. The homeowner
+   *     booking an electrician for their house.
+   *  3. Nothing — which is refused. An anonymous report with no location and
+   *     no address names no place at all and could never be acted on.
+   */
+  if (!locationId) {
+    if (!userId) {
+      throw new Error(
+        "Scan the QR code in the room, or sign in, to report a fault."
+      );
+    }
+    if (!address) {
+      throw new Error("Tell us where the fault is — pick a room or give an address.");
+    }
+  }
 
   /**
    * Which organisation owns this fault.
    *
    * The BUILDING decides first: a fault in an FNB stairwell is FNB's whoever
-   * walked past and reported it, including an anonymous QR scan. Only when the
-   * building is unowned does it fall back to the reporter's active context.
+   * walked past and reported it, including an anonymous QR scan. Only when
+   * there is no registered room does it fall back to the reporter's active
+   * context — and a personal report has none, so it stays unowned.
    */
-  const locationId = input.locationId || null;
   const owningOrg = locationId
     ? (
         await prisma.location.findUnique({
@@ -1195,6 +1251,8 @@ export async function createFaultReport(input: {
       locationId,
       reporterId: userId,
       reporterName: input.reporterName?.trim() || null,
+      // Only meaningful without a registered room; a room already says where.
+      address: locationId ? null : address,
       organisationId,
       photoUrls: input.photoUrls ?? [],
     },
