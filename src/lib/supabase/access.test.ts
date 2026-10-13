@@ -22,8 +22,18 @@ vi.mock("react", async (importOriginal) => ({
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+/** The org cookie the switcher sets; tests drive it directly. */
+let orgCookie: string | undefined;
+const cookieStore = {
+  get: (name: string) =>
+    name === "faultfx_active_org" && orgCookie ? { value: orgCookie } : undefined,
+  set: vi.fn(),
+  delete: vi.fn(),
+};
+
 vi.mock("next/headers", () => ({
   headers: async () => new Map([["host", "test.local"]]),
+  cookies: async () => cookieStore,
 }));
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
@@ -52,11 +62,26 @@ vi.mock("@/lib/supabase/admin", () => ({
 }));
 
 const prismaMock = {
-  user: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+  user: { findUnique: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   electricianProfile: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn() },
-  faultReport: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn(), delete: vi.fn() },
+  faultReport: {
+    findUnique: vi.fn(),
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  },
   job: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn(), create: vi.fn() },
-  location: { findMany: vi.fn() },
+  location: { findMany: vi.fn(), findUnique: vi.fn() },
+  membership: {
+    findUnique: vi.fn(),
+    findMany: vi.fn(),
+    count: vi.fn(),
+    upsert: vi.fn(),
+    delete: vi.fn(),
+  },
+  organisation: { findUnique: vi.fn(), create: vi.fn() },
   $transaction: vi.fn(),
 };
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
@@ -79,8 +104,27 @@ function signOut() {
   prismaMock.user.findUnique.mockResolvedValue(null);
 }
 
+const ORG_ID = "org-fnb";
+
+/** Puts the caller in an organisation context with the given standing. */
+function actingAsOrg(role: "OWNER" | "MANAGER" | "MEMBER", organisationId = ORG_ID) {
+  orgCookie = organisationId;
+  prismaMock.membership.findUnique.mockResolvedValue({
+    id: "mem-1",
+    role,
+    organisationId,
+  });
+}
+
+/** Cookie names an organisation the caller is NOT in. */
+function actingAsStranger(organisationId = ORG_ID) {
+  orgCookie = organisationId;
+  prismaMock.membership.findUnique.mockResolvedValue(null);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  orgCookie = undefined;
   signOut();
 });
 
@@ -275,5 +319,208 @@ describe("updateFaultReport", () => {
     await expect(
       actions.updateFaultReport("fault-1", { status: "RESOLVED" })
     ).rejects.toThrow(/only an electrician can change fault status/i);
+  });
+});
+
+// ── Organisation context ────────────────────────────────────────────────────
+describe("organisation context", () => {
+  it("ignores a cookie naming an organisation the caller is not in", async () => {
+    signInAs("CLIENT");
+    actingAsStranger();
+    prismaMock.faultReport.findMany.mockResolvedValue([]);
+
+    await actions.listFaultReports();
+
+    // Falls back to personal scope, NOT the claimed organisation. This is the
+    // property that makes a client-controlled cookie safe to read at all.
+    const where = prismaMock.faultReport.findMany.mock.calls[0][0].where;
+    expect(where).toMatchObject({ reporterId: CLIENT_ID, organisationId: null });
+    expect(where.organisationId).not.toBe(ORG_ID);
+  });
+
+  it("scopes a client to their own personal faults with no cookie", async () => {
+    signInAs("CLIENT");
+    prismaMock.faultReport.findMany.mockResolvedValue([]);
+
+    await actions.listFaultReports();
+
+    expect(prismaMock.faultReport.findMany.mock.calls[0][0].where).toMatchObject({
+      reporterId: CLIENT_ID,
+      organisationId: null,
+    });
+  });
+
+  it("shows a member the whole organisation's faults, not just their own", async () => {
+    signInAs("CLIENT");
+    actingAsOrg("MEMBER");
+    prismaMock.faultReport.findMany.mockResolvedValue([]);
+
+    await actions.listFaultReports();
+
+    const where = prismaMock.faultReport.findMany.mock.calls[0][0].where;
+    expect(where).toMatchObject({ organisationId: ORG_ID });
+    // The whole point: colleagues' reports are included.
+    expect(where).not.toHaveProperty("reporterId");
+  });
+
+  it("leaves staff reads unscoped", async () => {
+    signInAs("ELECTRICIAN", ELEC_USER_ID);
+    prismaMock.faultReport.findMany.mockResolvedValue([]);
+
+    await actions.listFaultReports();
+
+    const where = prismaMock.faultReport.findMany.mock.calls[0][0].where;
+    expect(where).not.toHaveProperty("organisationId");
+    expect(where).not.toHaveProperty("reporterId");
+  });
+
+  it("refuses to switch into an organisation the caller is not in", async () => {
+    signInAs("CLIENT");
+    prismaMock.membership.findUnique.mockResolvedValue(null);
+
+    await expect(actions.setActiveOrganisation(ORG_ID)).rejects.toThrow(/not a member/);
+    // Nothing unauthorised reaches the cookie.
+    expect(cookieStore.set).not.toHaveBeenCalled();
+  });
+
+  it("switches into an organisation the caller belongs to", async () => {
+    signInAs("CLIENT");
+    actingAsOrg("MEMBER");
+
+    await actions.setActiveOrganisation(ORG_ID);
+
+    expect(cookieStore.set).toHaveBeenCalledOnce();
+    const [, value, options] = cookieStore.set.mock.calls[0];
+    expect(value).toBe(ORG_ID);
+    // The client never needs to read it, so it must not be exposed to scripts.
+    expect(options).toMatchObject({ httpOnly: true, sameSite: "lax" });
+  });
+});
+
+// ── Organisation membership administration ─────────────────────────────────
+describe("organisation membership", () => {
+  it("stops a plain member adding colleagues", async () => {
+    signInAs("CLIENT");
+    actingAsOrg("MEMBER");
+
+    await expect(
+      actions.addOrganisationMember({ organisationId: ORG_ID, email: "new@test.local" })
+    ).rejects.toThrow(/requires OWNER or MANAGER/);
+  });
+
+  it("stops a manager creating another owner", async () => {
+    signInAs("CLIENT");
+    actingAsOrg("MANAGER");
+
+    await expect(
+      actions.addOrganisationMember({
+        organisationId: ORG_ID,
+        email: "new@test.local",
+        role: "OWNER",
+      })
+    ).rejects.toThrow(/requires OWNER/);
+  });
+
+  it("will not add someone who has no account", async () => {
+    signInAs("CLIENT");
+    actingAsOrg("OWNER");
+    prismaMock.user.findFirst.mockResolvedValue(null);
+
+    await expect(
+      actions.addOrganisationMember({ organisationId: ORG_ID, email: "ghost@test.local" })
+    ).rejects.toThrow(/no FaultFx account/i);
+  });
+
+  it("refuses to remove the last owner", async () => {
+    signInAs("CLIENT");
+    actingAsOrg("OWNER");
+    prismaMock.membership.findUnique.mockResolvedValueOnce({
+      id: "mem-1",
+      role: "OWNER",
+      organisationId: ORG_ID,
+    });
+    prismaMock.membership.count.mockResolvedValue(1);
+
+    await expect(
+      actions.removeOrganisationMember({ organisationId: ORG_ID, membershipId: "mem-x" })
+    ).rejects.toThrow(/only owner/i);
+  });
+
+  it("keeps a non-member out of the people list", async () => {
+    signInAs("CLIENT");
+    actingAsStranger();
+
+    await expect(actions.listOrganisationMembers(ORG_ID)).rejects.toThrow(/not a member/);
+  });
+});
+
+// ── Fault ownership follows the building ───────────────────────────────────
+describe("createFaultReport organisation stamping", () => {
+  it("takes the organisation from the building, even for an anonymous report", async () => {
+    signOut();
+    prismaMock.location.findUnique.mockResolvedValue({ organisationId: ORG_ID });
+    prismaMock.faultReport.create.mockResolvedValue({ id: "f1" });
+
+    await actions.createFaultReport({ description: "Dead socket", locationId: "loc-1" });
+
+    expect(prismaMock.faultReport.create.mock.calls[0][0].data).toMatchObject({
+      organisationId: ORG_ID,
+      reporterId: null,
+    });
+  });
+
+  it("falls back to the reporter's context when the building is unowned", async () => {
+    signInAs("CLIENT");
+    actingAsOrg("MEMBER");
+    prismaMock.location.findUnique.mockResolvedValue({ organisationId: null });
+    prismaMock.faultReport.create.mockResolvedValue({ id: "f1" });
+
+    await actions.createFaultReport({ description: "Flickering light", locationId: "loc-1" });
+
+    expect(prismaMock.faultReport.create.mock.calls[0][0].data).toMatchObject({
+      organisationId: ORG_ID,
+    });
+  });
+
+  it("leaves a personal fault unowned", async () => {
+    signInAs("CLIENT");
+    prismaMock.faultReport.create.mockResolvedValue({ id: "f1" });
+
+    await actions.createFaultReport({ description: "My kitchen plug" });
+
+    expect(prismaMock.faultReport.create.mock.calls[0][0].data).toMatchObject({
+      organisationId: null,
+      reporterId: CLIENT_ID,
+    });
+  });
+});
+
+// ── Editing an organisation's faults ───────────────────────────────────────
+describe("updateFaultReport in an organisation", () => {
+  it("lets a manager correct a colleague's report", async () => {
+    signInAs("CLIENT");
+    actingAsOrg("MANAGER");
+    prismaMock.faultReport.findUnique.mockResolvedValue({
+      reporterId: "a-colleague",
+      organisationId: ORG_ID,
+    });
+    prismaMock.faultReport.update.mockResolvedValue({ id: "f1" });
+
+    await expect(
+      actions.updateFaultReport("f1", { description: "Corrected" })
+    ).resolves.toBeDefined();
+  });
+
+  it("stops a plain member rewriting a colleague's report", async () => {
+    signInAs("CLIENT");
+    actingAsOrg("MEMBER");
+    prismaMock.faultReport.findUnique.mockResolvedValue({
+      reporterId: "a-colleague",
+      organisationId: ORG_ID,
+    });
+
+    await expect(
+      actions.updateFaultReport("f1", { description: "Nope" })
+    ).rejects.toThrow(/faults you reported/);
   });
 });

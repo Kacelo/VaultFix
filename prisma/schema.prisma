@@ -44,6 +44,17 @@ enum JobStatus {
   CANCELLED
 }
 
+/**
+ * A member's standing WITHIN an organisation. Deliberately separate from
+ * `Role`, which is platform-wide: the same person can be a CLIENT on the
+ * platform and an OWNER of their employer's account.
+ */
+enum OrgRole {
+  OWNER   // members, buildings, and later billing and contracts
+  MANAGER // sees everything the organisation reports; can act on it
+  MEMBER  // reports faults, sees the organisation's faults
+}
+
 enum CertType {
   COC              // Certificate of Compliance
   WIREMAN_LICENSE
@@ -77,6 +88,7 @@ model User {
 
   // Relations
   electricianProfile ElectricianProfile?
+  memberships        Membership[]
   faultReports       FaultReport[]       @relation("ReporterFaults")
   jobsAsClient       Job[]               @relation("ClientJobs")
   reviewsGiven       Review[]            @relation("ReviewsGiven")
@@ -112,6 +124,41 @@ model ElectricianProfile {
   @@map("electrician_profiles")
 }
 
+model Organisation {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships  Membership[]
+  locations    Location[]
+  faultReports FaultReport[]
+
+  @@map("organisations")
+}
+
+/**
+ * One human, many organisations — which is the whole point. Someone can report
+ * a fault at work and book an electrician for their home from the same login;
+ * the active context decides which, and it is re-read from this table on every
+ * request rather than trusted from the client.
+ */
+model Membership {
+  id             String   @id @default(cuid())
+  userId         String
+  organisationId String
+  role           OrgRole  @default(MEMBER)
+  createdAt      DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organisationId])
+  @@index([organisationId])
+  @@map("memberships")
+}
+
 model Location {
   id          String   @id @default(cuid())
   building    String
@@ -120,8 +167,14 @@ model Location {
   qrUrl       String?  // URL embedded in the QR code
   createdAt   DateTime @default(now())
 
+  // null = unowned, which is every building that exists today. A fault at an
+  // owned building belongs to that organisation whoever reports it.
+  organisationId String?
+  organisation   Organisation? @relation(fields: [organisationId], references: [id])
+
   faultReports FaultReport[]
 
+  @@index([organisationId])
   @@map("locations")
 }
 
@@ -136,6 +189,10 @@ model FaultReport {
   reporterId  String?
   reporter    User?         @relation("ReporterFaults", fields: [reporterId], references: [id])
   reporterName String?      // for anonymous reports
+  // null = a personal fault. Set from the building's owner when it has one,
+  // otherwise from the reporter's active context.
+  organisationId String?
+  organisation   Organisation? @relation(fields: [organisationId], references: [id])
   photoUrls   String[]      @default([])
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -144,6 +201,7 @@ model FaultReport {
   // fault assignable again. "At most one ACTIVE job" is enforced in createJob.
   jobs Job[]
 
+  @@index([organisationId])
   @@map("fault_reports")
 }
 
