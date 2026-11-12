@@ -13,6 +13,7 @@ import {
 import { AccessNotice } from "@/components/AccessNotice";
 import { VerifyButtons } from "./VerifyButtons";
 import { JobStatusButtons } from "./JobStatusButtons";
+import { AssignFaultButton } from "./AssignFaultButton";
 import { OrganisationsPanel } from "./OrganisationsPanel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -240,7 +241,8 @@ async function ClientDashboard() {
                   <TableHead>Fault</TableHead>
                   <TableHead>Where</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Priority</TableHead>
+                  <TableHead>Priority</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -257,8 +259,17 @@ async function ClientDashboard() {
                     <TableCell>
                       <StatusBadge value={f.status} />
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell>
                       <PriorityBadge value={f.priority} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {/* A cancelled job leaves the fault assignable again, so
+                          only a live one means it is already someone's. */}
+                      {f.jobs.some((j) => j.status !== "CANCELLED") ? (
+                        <span className="text-xs text-muted-foreground">assigned</span>
+                      ) : (
+                        <AssignFaultButton faultId={f.id} />
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -576,7 +587,8 @@ async function AdminDashboard() {
                   <TableHead>Fault</TableHead>
                   <TableHead>Where</TableHead>
                   <TableHead>Logged</TableHead>
-                  <TableHead className="text-right">Priority</TableHead>
+                  <TableHead>Priority</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -593,8 +605,11 @@ async function AdminDashboard() {
                     <TableCell className="text-muted-foreground">
                       {formatDate(f.createdAt)}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell>
                       <PriorityBadge value={f.priority} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <AssignFaultButton faultId={f.id} />
                     </TableCell>
                   </TableRow>
                 ))}

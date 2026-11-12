@@ -606,6 +606,34 @@ export async function searchElectricians(filters?: {
 }
 
 /**
+ * The electricians who can actually be given a job right now.
+ *
+ * Mirrors the two gates createJob enforces — NTA verified and currently
+ * available — so the picker cannot offer someone the server will refuse.
+ * createJob re-checks both regardless; this only avoids a pointless round
+ * trip ending in an error.
+ *
+ * Requires a session but no particular role: a client assigns to their own
+ * fault, staff assign to any. createJob decides which.
+ */
+export async function listAssignableElectricians() {
+  await requireRole(["CLIENT", "ELECTRICIAN", "ADMIN"]);
+
+  return prisma.electricianProfile.findMany({
+    where: { ntaVerified: true, isAvailable: true },
+    select: {
+      id: true,
+      specialisation: true,
+      serviceArea: true,
+      calloutFee: true,
+      averageRating: true,
+      user: { select: { name: true } },
+    },
+    orderBy: [{ averageRating: { sort: "desc", nulls: "last" } }, { createdAt: "asc" }],
+  });
+}
+
+/**
  * Public profile read backing /technicians/[id]. Unauthenticated on purpose:
  * the directory it is reached from is public, so gating the profile behind a
  * session would break every card's "View Profile" link for visitors.

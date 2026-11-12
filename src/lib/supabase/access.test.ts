@@ -669,3 +669,25 @@ describe("createOrganisation", () => {
     });
   });
 });
+
+// ── Assigning work from the dashboard ──────────────────────────────────────
+describe("listAssignableElectricians", () => {
+  it("is closed to signed-out callers", async () => {
+    signOut();
+    await expect(actions.listAssignableElectricians()).rejects.toThrow(/Unauthorized/);
+  });
+
+  it("offers only verified, available electricians", async () => {
+    signInAs("ADMIN", "admin-1");
+    prismaMock.electricianProfile.findMany.mockResolvedValue([]);
+
+    await actions.listAssignableElectricians();
+
+    // The same two gates createJob enforces, so the picker cannot offer
+    // someone the server would then refuse.
+    expect(prismaMock.electricianProfile.findMany.mock.calls[0][0].where).toEqual({
+      ntaVerified: true,
+      isAvailable: true,
+    });
+  });
+});
