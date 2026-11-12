@@ -645,9 +645,23 @@ async function AdminDashboard() {
 /* ── Shell ───────────────────────────────────────────────────────────────── */
 
 export default async function DashboardPage() {
-  // proxy.ts redirects signed-out callers to /login before this runs, so this
-  // is a backstop rather than the primary gate.
-  const user = await getCurrentUser().catch(() => null);
+  /**
+   * proxy.ts redirects signed-out callers to /login before this runs, so a
+   * null user here is a backstop rather than the primary gate.
+   *
+   * Signed-out and "the lookup failed" are kept apart deliberately. They were
+   * once the same `.catch(() => null)`, which meant a database outage rendered
+   * "Sign in to view your dashboard" at someone who was perfectly well signed
+   * in — a wrong answer that also sent them looking in the wrong place.
+   */
+  let user: Awaited<ReturnType<typeof getCurrentUser>> = null;
+  let lookupFailed = false;
+
+  try {
+    user = await getCurrentUser();
+  } catch {
+    lookupFailed = true;
+  }
 
   return (
     // The hero gradient stays an inline style: it is a CSS gradient behind a
@@ -663,7 +677,13 @@ export default async function DashboardPage() {
       />
 
       <div className="container relative">
-        {!user ? (
+        {lookupFailed ? (
+          <AccessNotice
+            title="We can't reach your account right now"
+            message="You're signed in, but the database didn't respond, so there's nothing to show yet. This is on our side — please try again shortly."
+            showLogin={false}
+          />
+        ) : !user ? (
           <AccessNotice
             title="Sign in to view your dashboard"
             message="Your faults, call-outs and receipts live behind your account."
