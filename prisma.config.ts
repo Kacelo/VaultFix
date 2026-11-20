@@ -20,12 +20,13 @@ import { defineConfig } from "prisma/config";
  * Migrate still fails loudly if it is genuinely needed and missing; it just
  * fails at the point where a database connection is actually required.
  */
-const directUrl = process.env.DIRECT_URL;
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
   },
-  ...(directUrl ? { datasource: { url: directUrl } } : {}),
-});
+  datasource: {
+    // Use process.env instead of env("DIRECT_URL") so prisma generate doesn't crash
+    url: process.env.DIRECT_URL ?? process.env.DATABASE_URL ?? "",
+  },});
