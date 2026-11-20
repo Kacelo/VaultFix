@@ -1,19 +1,50 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, use, FormEvent } from "react";
 import Link from "next/link";
 import { signInWithGoogle, signInWithPassword } from "@/lib/supabase/actions";
 
-export default function LoginPage() {
+/**
+ * Failures that happen before this page renders arrive as `?error=`, redirected
+ * here from the OAuth callback or a sign-in action. Each needs saying in a way
+ * that tells the person what to do next.
+ */
+const REDIRECT_ERRORS: Record<string, string> = {
+  "google-sign-in-failed": "Google sign-in didn't complete. Please try again.",
+  "email-sign-in-failed": "We couldn't send that sign-in link. Check the address and try again.",
+  "missing-code": "That sign-in link is incomplete or has already been used. Request a new one.",
+  "profile-setup-failed":
+    "You're signed in, but we couldn't finish setting up your account. Please try again or contact support.",
+};
+
+export default function LoginPage(props: PageProps<"/login">) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [formError, setFormError] = useState("");
+
+  /**
+   * A client page reads its own search params with React's `use`. Derived
+   * during render rather than pushed into state from an effect, which both
+   * avoids a cascading render and keeps server and client output identical.
+   *
+   * These redirects were previously silent: the OAuth callback has always
+   * appended `?error=`, and nothing on this page ever read it.
+   */
+  const redirectErrorCode = use(props.searchParams).error;
+  const redirectError =
+    typeof redirectErrorCode === "string"
+      ? REDIRECT_ERRORS[redirectErrorCode] ??
+        "Something went wrong signing you in. Please try again."
+      : "";
+
+  // A fresh submission failure is the more relevant of the two.
+  const error = formError || redirectError;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setError("");
+    setFormError("");
 
     const formData = new FormData();
     formData.set("email", email);
@@ -24,7 +55,7 @@ export default function LoginPage() {
     const result = await signInWithPassword(null, formData);
 
     if (result?.error) {
-      setError(result.error);
+      setFormError(result.error);
       setLoading(false);
     }
   }

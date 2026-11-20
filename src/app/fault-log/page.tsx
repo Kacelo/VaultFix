@@ -33,24 +33,36 @@ const priorityConfig: Record<Priority, { label: string; color: string; bg: strin
 
 function FaultLogForm() {
   const searchParams = useSearchParams();
+  // A QR code lands here with ?location=<id>. That room is reportable without
+  // membership, so it must survive an empty organisation room list.
   const locationId = searchParams.get("location") || "";
+  const scannedRoom = locationId;
 
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState(locationId);
   const [locations, setLocations] = useState<ReportingLocation[]>([]);
   const [reporterName, setReporterName] = useState("");
+  const [address, setAddress] = useState("");
   const [priority, setPriority] = useState<Priority | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [faultRef, setFaultRef] = useState("");
   const [error, setError] = useState("");
 
-  // Rooms are picked from the real Location rows the QR codes point at, so a
-  // report always lands against something an electrician can actually find.
+  /**
+   * Rooms come from the caller's active organisation only — the server returns
+   * an empty list outside an organisation context, which is the common case.
+   *
+   * That leaves three ways to report, and the form switches between them:
+   *   - an organisation's room, from this dropdown
+   *   - a specific room reached by scanning its QR code (?location=…), which
+   *     works without an account
+   *   - your own address, signed in, for a fault at home
+   */
   useEffect(() => {
     listLocationsForReporting()
       .then(setLocations)
-      .catch(() => setError("Could not load the room list. You can still describe the fault below."));
+      .catch(() => setError("Could not load your room list. You can still describe the fault below."));
   }, []);
 
   const selectedLocation = locations.find((l) => l.id === location);
@@ -78,6 +90,7 @@ function FaultLogForm() {
           | "MEDIUM"
           | "LOW",
         locationId: location || undefined,
+        address: location ? undefined : address.trim() || undefined,
         reporterName: reporterName || undefined,
       });
 
@@ -176,29 +189,48 @@ function FaultLogForm() {
         </div>
       )}
 
-      {/* Location */}
+      {/* Where the fault is: a room from your organisation, the room whose QR
+          code was scanned, or your own address. */}
       <div style={{ marginBottom: "1.125rem" }}>
-        <label htmlFor="fault-location" className="label">Location / Room</label>
-        <select
-          id="fault-location"
-          className="input"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-          required
-        >
-          <option value="">
-            {locations.length ? "Select the room…" : "Loading rooms…"}
-          </option>
-          {locations.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.building} – {l.room}
-            </option>
-          ))}
-        </select>
-        {locations.length === 0 && !error && (
-          <p style={{ fontSize: "0.8rem", color: "var(--text-subtle)", marginTop: "0.375rem" }}>
-            No rooms have been set up yet — an admin can add them in the QR Code Generator.
-          </p>
+        {locations.length > 0 || scannedRoom ? (
+          <>
+            <label htmlFor="fault-location" className="label">Location / Room</label>
+            <select
+              id="fault-location"
+              className="input"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              required
+            >
+              <option value="">Select the room…</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.building} – {l.room}
+                </option>
+              ))}
+              {/* The scanned room may not be in the list — that is the whole
+                  point of the QR path, which needs no membership. */}
+              {scannedRoom && !locations.some((l) => l.id === scannedRoom) && (
+                <option value={scannedRoom}>Scanned room</option>
+              )}
+            </select>
+          </>
+        ) : (
+          <>
+            <label htmlFor="fault-address" className="label">Where is the fault?</label>
+            <input
+              id="fault-address"
+              className="input"
+              placeholder="e.g. 12 Nelson Mandela Ave, Windhoek"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              required
+            />
+            <p style={{ fontSize: "0.8rem", color: "var(--text-subtle)", marginTop: "0.375rem" }}>
+              Reporting for a workplace? Scan the QR code in the room, or switch to your
+              organisation in the menu to pick from its rooms.
+            </p>
+          </>
         )}
       </div>
 
@@ -289,7 +321,7 @@ function FaultLogForm() {
       <button
         id="fault-submit-btn"
         type="submit"
-        disabled={submitting || !description || !location}
+        disabled={submitting || !description || !(location || address.trim())}
         className="btn-primary"
         style={{ width: "100%", justifyContent: "center", fontSize: "1rem", padding: "0.875rem" }}
       >

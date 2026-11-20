@@ -1,13 +1,19 @@
 {
   "name": "frontend",
   "version": "0.1.0",
+  "packageManager": "pnpm@10.7.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate --schema prisma/schema.prisma && next build",
+    "vercel-build": "prisma generate --schema prisma/schema.prisma && next build",
+    "postinstall": "prisma generate --schema prisma/schema.prisma",
     "start": "next start",
     "lint": "eslint",
-    "make-admin": "tsx scripts/make-admin.ts"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "make-admin": "tsx scripts/make-admin.ts",
+    "backfill-profiles": "tsx scripts/backfill-profiles.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.9.1",
@@ -37,6 +43,18 @@
     "prisma": "7.9.1",
     "tailwindcss": "^4",
     "tsx": "^4.22.4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^5.0.4"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/engines",
+      "prisma",
+      "esbuild"
+    ],
+    "ignoredBuiltDependencies": [
+      "sharp",
+      "unrs-resolver"
+    ]
   }
 }

@@ -15,17 +15,20 @@
 | Area | State |
 |---|---|
 | Public marketing site (`/`) | Working |
-| Registration / login (email+password, magic link, Google) | Working, **Google path broken** (§9.1) |
+| Registration / login (email+password, magic link, Google) | Working; the Google no-profile bug is fixed (§9.1) |
 | Electrician directory + profiles | Working, verified against live data |
 | Fault reporting (incl. anonymous QR flow) | Working |
 | Booking an electrician | Built, **not exercised against a real session** |
 | Role-aware dashboard (client / electrician / admin) | Built, **not exercised against a real session** |
 | NTA verification queue (admin, approvable in place) | Built, unverified |
-| Mark a job complete | **Backend done, no UI** (§9.3) |
+| Mark a job complete | Electrician control shipped (§9.3) — unverified in UI |
 | Admin-side job assignment | **Not built** |
-| Organisations / maintenance contracts | **Not built** (§10.1) |
+| Organisations, memberships, work/personal switcher | Built (§10.2) — unverified in UI |
+| Admin registers customers + their rooms (QR) | Built — unverified in UI |
+| Org-scoped room dropdown for reporting | Built (§4) — unverified in UI |
+| Maintenance contracts | **Not built** (§10.1) |
 | Notifications of any kind | **Do not exist** (§10.1) |
-| Automated tests | **None** |
+| Automated tests | 36, covering the authorization boundary (§12) |
 
 The honest summary: the public, read-only surface is verified working. Most of
 the authenticated surface is written, typechecked and built, but has never been
@@ -127,6 +130,60 @@ Both vulnerabilities found and fixed in `5bb9928` were this exact mistake.
 | `requireRole([...])` | Throws unless the caller's **database** role matches |
 | `requireElectricianProfileId()` | Caller's electrician profile, or throws |
 | `requireJobAccess(jobId)` | Caller is the job's client, its electrician, or admin |
+| `getActiveOrganisationId()` | The org the caller is acting as, or null for personal |
+| `requireOrgRole(orgId, roles)` | Throws unless the caller holds one of `roles` in that org |
+
+### Organisation context — read this before touching it
+
+The active context is held in an **httpOnly cookie**, and that cookie only
+**selects** a context; it never **grants** one. Whatever it claims is checked
+against the `memberships` table on **every request**, so a forged, stale or
+copied cookie resolves to personal rather than to someone else's
+organisation. `access.test.ts` asserts exactly this.
+
+`requireOrgRole` is the only way to assert organisation access. Platform
+`ADMIN`s get **no implicit bypass** — running the platform is not the same as
+being inside a customer's account, and a silent bypass would make every
+org-scoped check untrustworthy. Where admins need to see across
+organisations, the read says so explicitly.
+
+Fault visibility goes through one predicate, `visibleFaultFilter`: staff see
+everything; a client sees either their own personal faults or everything
+belonging to the organisation they are acting as. Personal context
+deliberately **excludes** organisation faults, so "personal" means personal.
+
+**Fault ownership follows the building first.** A fault in an FNB stairwell is
+FNB's whoever reported it, including an anonymous QR scan; it falls back to the
+reporter's active context only when there is no registered room. That is the
+rule maintenance contracts (§10.1) will route on.
+
+### The three ways to report a fault
+
+Enforced in `createFaultReport`, not just in the form:
+
+1. **A registered room, by id.** Either picked from the dropdown of your
+   organisation's rooms, or reached by scanning the QR code on the wall. The
+   physical sticker **is** the authorisation for the anonymous case — a visitor
+   should be able to report a dead socket in an FNB stairwell without an
+   account — and location ids are unguessable cuids. The fault lands with the
+   organisation that owns the room.
+2. **An address, signed in, with no registered room.** The homeowner booking an
+   electrician for their house. Stays unowned.
+3. **Neither — refused.** An anonymous report naming no place could never be
+   acted on.
+
+A stray address is discarded when a room was given, so the two can never
+disagree about where the fault is.
+
+**Who sets this up:** the platform registers a customer (an organisation, with
+a named owner) and then its rooms, each optionally owned by that organisation.
+Organisation creation is ADMIN-only — a self-served organisation would have no
+buildings and no QR codes. The owner manages their own people afterwards from
+their dashboard.
+
+**`listLocationsForReporting` is organisation-scoped**, and returns an empty
+list outside an organisation context. It previously returned every room on the
+platform to anybody, signed in or not — see §9.6.
 
 All of these are memoised with React `cache()` for the lifetime of one request.
 Before that, rendering a single page cost three separate Supabase auth calls.
@@ -151,14 +208,15 @@ a guard or a written justification for why it is public.
 
 ## 5. Data model
 
-Models: `User`, `ElectricianProfile`, `Location`, `FaultReport`, `Job`,
-`Certificate`, `Review`, `Receipt`, `Subscription`.
+Models: `User`, `Organisation`, `Membership`, `ElectricianProfile`, `Location`,
+`FaultReport`, `Job`, `Certificate`, `Review`, `Receipt`, `Subscription`.
 
 ### Enums
 
 | Enum | Values |
 |---|---|
-| `Role` | `CLIENT`, `ELECTRICIAN`, `ADMIN` |
+| `Role` | `CLIENT`, `ELECTRICIAN`, `ADMIN` (platform-wide) |
+| `OrgRole` | `OWNER`, `MANAGER`, `MEMBER` (within one organisation) |
 | `FaultPriority` | `CRITICAL`, `HIGH`, `MEDIUM`, `LOW` |
 | `FaultStatus` | `OPEN`, `ASSIGNED`, `IN_PROGRESS`, `RESOLVED`, `CLOSED` |
 | `JobStatus` | `PENDING`, `ACCEPTED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED` |
@@ -180,8 +238,12 @@ can and cannot do:
 - **`Job.faultId`** — **one job per fault, forever.** This single constraint is
   the root of the cancellation bug in §9.2.
 - `Review.jobId`, `Receipt.jobId` — one each per job.
-- `Subscription.userId` — **billing is per person, not per organisation.**
-  Relevant to §10.
+- `Membership` is unique on `(userId, organisationId)` — one standing per
+  person per organisation.
+- `Organisation.slug` is unique; `createOrganisation` falls back to a suffixed
+  slug so similarly-named organisations do not block each other.
+- `Subscription.userId` — **billing is still per person, not per
+  organisation.** Unresolved, and §10.1 will force the question.
 
 ### Core flow
 
@@ -324,9 +386,12 @@ anything reachable without a session.
 
 ## 9. Known issues
 
-Ordered by how much damage they do.
+**Phase 1 cleared §9.1 through §9.4 on 2026-10-13.** They are kept below with
+their resolutions, because the reasoning is worth having when the same shapes
+recur — particularly §9.2, which is now an application-level invariant rather
+than a database one.
 
-### 9.1 Google sign-in creates an account with no database row
+### 9.1 ~~Google sign-in creates an account with no database row~~ — FIXED
 
 `/auth/callback` exchanges the OAuth code and redirects, but **never calls
 `syncUserProfile`**. The result: a valid Supabase auth session with **no `users`
@@ -335,11 +400,15 @@ to sign in *while they are signed in*, and they have no role, no profile and no
 ability to do anything. The navbar now shows them a Dashboard button that leads
 to that dead end.
 
-**Fix:** have the callback upsert the profile after a successful exchange.
-Google provides no role, so it needs a role-selection step or a `CLIENT`
-default.
+**Done:** the callback now calls `ensureCurrentUserProfile()` after a
+successful exchange. That function requires a session and takes **no
+arguments**, reading identity from the token — the opposite of
+`syncUserProfile`, and what makes it safe. Create-only, so Google sign-in can
+never rewrite an existing electrician's or admin's role. New accounts default
+to `CLIENT`. The `?error=` codes the callback has always emitted are now
+displayed on the login page, where they were previously silent.
 
-### 9.2 Cancelling a job strands its fault forever
+### 9.2 ~~Cancelling a job strands its fault forever~~ — FIXED
 
 `Job.faultId` is `@unique` and `createJob` refuses when `fault.job` exists.
 Cancelling sets the **fault** back to `OPEN` — which reads as "available
@@ -347,30 +416,59 @@ again" — but the `Job` row remains, so **that fault can never be assigned to
 anyone, ever.** The fault looks open indefinitely and every booking attempt
 fails with "This fault already has a job assigned."
 
-**Fix options:** delete the job row on cancellation, or drop the `@unique` on
-`faultId` and scope the "already assigned" check to non-cancelled jobs. The
-second is better history-keeping; the first is a smaller change.
+**Done:** took the history-keeping option. `FaultReport.jobs` is now a list,
+the unique index is a plain one, and `createJob` ignores cancelled rows.
 
-### 9.3 No UI to progress or complete a job
+> **Carry this forward:** "at most one ACTIVE job per fault" is now enforced in
+> application code, not by the database. A partial unique index
+> (`WHERE status <> 'CANCELLED'`) would be stronger, but Prisma cannot express
+> one in the schema and reports it as drift on every later migrate. Two
+> concurrent `createJob` calls for one fault could therefore both succeed.
+
+### 9.3 ~~No UI to progress or complete a job~~ — FIXED
 
 `updateJobStatus` is complete and correct — transactional, stamps
 `startedAt`/`completedAt`, moves the fault to `RESOLVED`, and only lets the
 assigned electrician or an admin progress a job (a client may only cancel).
 **Nothing in the UI calls it.** The capability exists only as a POST endpoint.
 
-Natural home: a per-row status control in the electrician dashboard's
-"Your call-outs" table.
+**Done:** each call-out in the electrician dashboard offers exactly one forward
+step — Accept, Start work, Mark complete — plus Cancel until completion.
+Terminal states offer nothing. Labels live in the UI; `JOB_TRANSITIONS` in
+actions.ts remains the authority.
 
-### 9.4 No job status transition validation
+### 9.4 ~~No job status transition validation~~ — FIXED
 
-`updateJobStatus` accepts any status from any status. A job can jump
-`PENDING → COMPLETED` without ever being `IN_PROGRESS`, and a completed job can
-be moved backwards. Because the action is a public endpoint, the state machine
-has to be enforced **server-side**, not just by which buttons the UI renders.
+`updateJobStatus` accepted any status from any status: a job could jump
+`PENDING → COMPLETED` unworked, or a completed job be dragged backwards.
+
+**Done:** `JOB_TRANSITIONS` enforces the lifecycle server-side — accept, start,
+complete, with cancellation available until completion and both end states
+terminal. Re-sending a job's current status is a no-op rather than an error, so
+a double-click is not alarming.
+
+### 9.6 ~~The room list exposed every customer's sites~~ — FIXED
+
+`listLocationsForReporting` was unauthenticated and unscoped: it returned
+**every room on the platform** to anyone. An FNB employee saw every other
+customer's buildings, and anyone at all could enumerate every customer's sites
+by calling the action directly.
+
+This was the gap that also made the organisation work fail to reach the
+reporting flow: with no room owned by anyone, "fault ownership follows the
+building" never fired.
+
+**Done:** scoped to the caller's active organisation, empty outside one. The
+anonymous QR path is unaffected because it resolves a *specific* room by id
+(`getLocation`) rather than listing — it is the list that leaked, not the
+lookup.
 
 ### 9.5 Smaller items
 
-- **`/about` 404s** from the navbar.
+- ~~**`/about` 404s** from the navbar~~ — link removed. Three dead links
+  remain by choice: `/forgot-password`, `/privacy` and `/terms`. Those are a
+  missing feature and missing legal pages, not stray markup; deleting the links
+  would hide real gaps.
 - **The landing page's own "Get Started" CTA** still shows to signed-in users.
 - **`getAllElectricians` has no callers** and is an unauthenticated endpoint
   returning the whole table. Deleting it would reduce attack surface.
@@ -380,12 +478,58 @@ has to be enforced **server-side**, not just by which buttons the UI renders.
   would help.
 - **`actions.ts` is ~1,500 lines.** Domain sections are already marked; the
   split is mechanical.
-- **No tests at all.** The app's correctness is overwhelmingly authorization
-  logic, which is exactly what tests would protect.
 
 ---
 
 ## 10. Requested features
+
+### 10.0 Agreed build order
+
+Settled 2026-10-11. Each phase is shippable on its own, and the order is
+deliberate: the security boundary gets rewritten in phase 2, so the known bugs
+are cleared first rather than carried through it.
+
+**Phase 1 — clear the known issues (§9).** Largely done on 2026-10-13: §9.1
+through §9.4 are fixed and the authorization boundary has tests. Outstanding:
+input validation at the public boundary, and splitting actions.ts.
+
+- Google sign-in creates the `users` record, defaulting to role `CLIENT` (§9.1)
+- Cancelling a job frees its fault for reassignment (§9.2)
+- Electricians get a control to start and complete jobs (§9.3)
+- The **server** enforces valid job status transitions, not just the UI (§9.4)
+- The small items in §9.5
+- **Tests for the access checks** — the first tests in the project, aimed at
+  exactly the layer that has produced every bug found so far
+
+**Phase 2 — organisations (§10.2).** Built on 2026-10-13, corrected
+2026-10-14. Organisations, memberships, organisation-owned buildings, the
+work/personal switcher, colleague-shared fault visibility, admin registration
+of customers and their rooms, and the three reporting paths. See §4.
+
+The first pass scoped faults but not *rooms*, which is where the flow actually
+starts — worth remembering as a shape: attribution rules are useless until
+something feeds them.
+
+Outstanding in this phase: jobs, receipts and certificates are still scoped
+per person, not per organisation — a colleague cannot yet see the job raised
+off a shared fault. `Job` has no `organisationId`; it is derivable through
+`fault.organisationId`, which is the likely fix.
+
+> This phase *is* the security boundary. All 54 actions currently guard against
+> a single global role, and every scoped read assumes "mine = mine personally".
+> Budget for care, not speed.
+
+**Phase 3 — maintenance contracts (§10.1).** A fault at a building under
+contract can only be assigned to the contracted provider's technicians — and
+only to those assigned to that building, where such assignments exist. Enforced
+server-side, because filtering a dropdown protects nothing. Buildings with no
+contract keep today's open marketplace, which is what makes this additive.
+Admins get a screen to set contracts up.
+
+> Phase 3 delivers the client's intent but **not notifications** — those still
+> do not exist (see §10.1). Confirm with him whether restricting eligibility is
+> what he actually wants, or whether he is expecting push alerts too.
+
 
 ### 10.1 Maintenance contracts: route faults to a contracted provider
 
@@ -508,28 +652,27 @@ person. If FNB or VoltCore pays, subscriptions belong to the organisation.
 **Stakeholder's request:** a NamWater employee uses the app for facilities
 maintenance at work *and* to book an electrician for their own home.
 
-**Recommendation: one identity, many contexts — not two accounts.** Same login,
-a workspace switcher ("NamWater" / "Personal"), and each fault records which
-context it was raised in. Two literal accounts works today with zero code
-(`email @unique` means two email addresses) but gives two passwords, no
-switching, and no shared visibility.
+**Done — one identity, many contexts, not two accounts.** Same login, a
+switcher in the navbar, and each fault records the context it was raised in.
+A `Membership` row per organisation; `email @unique` is untouched, so nobody
+needs a second address.
 
-**What they may not have realised:** FaultFx cannot do organisational facilities
-maintenance *at all* right now, regardless of account separation.
-`listFaultReports` scopes a client to `reporterId = caller.id`, so a NamWater
-facilities manager cannot see a fault a colleague logged. The missing piece is
-not account separation — it is **shared, org-scoped visibility**.
+The answer to give the stakeholder: yes, one login with a workspace switcher.
 
-This shares its entire foundation with §10.1. Do them together.
+The capability that was actually missing — **shared, org-scoped
+visibility** — is the part that now works: in an organisation context a client
+sees every fault belonging to it, not just their own. `listFaultReports`,
+`listBookableFaults` and `getFaultReport` all route through
+`visibleFaultFilter`.
 
-### 10.3 Timing
+§10.1 builds directly on this foundation.
 
-The cheapest moment to introduce tenancy is **now**, with a handful of users and
-near-zero data. Retrofitting organisation ownership onto thousands of existing
-faults and locations is the genuinely painful version. That said, it should not
-block the first deploy.
+### 10.3 Why tenancy should not wait
 
----
+The cheapest moment to introduce organisations is **now**, with a handful of
+users and near-zero data. Retrofitting organisation ownership onto thousands of
+existing faults and locations is the genuinely painful version. It should not
+block the first deploy, but it should not drift either.
 
 ## 11. Design decisions worth not re-litigating
 
@@ -576,6 +719,15 @@ three queries in one batch (~640ms).
 
 Be precise about this, because much of the app has never been run by a human.
 
+**Covered by tests (`pnpm test`):** 36 tests over the authorization boundary —
+including that a cookie naming an organisation the caller does not belong to
+falls back to personal scope, that a plain member cannot add colleagues or
+rewrite their reports, that a manager cannot mint owners, that the last owner
+cannot be removed, and that fault ownership follows the building —
+signed-out rejection, role gates, `syncUserProfile`'s role allowlist,
+`createJob`'s four refusals, the job lifecycle, and fault ownership. Supabase,
+Prisma and `next/*` are mocked so the real guard logic runs.
+
 **Verified against live data:**
 - Public pages return 200; the directory renders and filters correctly.
 - `/technicians/[id]` renders, and a bad id returns a real HTTP 404.
@@ -585,6 +737,14 @@ Be precise about this, because much of the app has never been run by a human.
 - A clean `git clone` + install + build succeeds (this is what Vercel does).
 - shadcn tokens resolve to the FaultFx palette with no white leakage.
 - `make-admin` connects, queries and reports correctly for a missing address.
+- Cancelling a job frees its fault: exercised end to end against the live
+  database inside a rolled-back transaction — unbookable while the job is
+  live, bookable once cancelled, and a second job can then be created. Zero
+  rows persisted.
+- The organisation schema, likewise: creating an organisation grants its
+  creator an OWNER membership atomically, a building can be owned by it, an
+  org-scoped read sees a *colleague's* fault, and a personal-scoped read does
+  not. Zero rows persisted.
 
 **Built and typechecked but never exercised with a real session:**
 - Registration — *and it changed*; it now requires `SUPABASE_SERVICE_ROLE_KEY`.
@@ -592,6 +752,8 @@ Be precise about this, because much of the app has never been run by a human.
 - The booking form on a technician's profile.
 - The signed-in navbar (identity, Dashboard, sign out).
 - The admin verification queue's approve buttons.
+- The new job status control (Accept / Start work / Mark complete).
+- The context switcher and the organisations panel, end to end in a browser.
 - `make-admin`'s actual promotion branch (it writes to production data).
 
 **Next action, before building anything further:** create an admin with
