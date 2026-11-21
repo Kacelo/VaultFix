@@ -1,3 +1,18 @@
+# pnpm 10+ refuses to run a dependency's build scripts unless it is listed
+# here, and EXITS NON-ZERO when it finds unapproved ones. On CI that fails the
+# install outright — which is what broke the Vercel deploy.
+#
+# Allowed, because each genuinely needs its build step:
+#   @prisma/engines  fetches the query engine binary
+#   prisma           CLI postinstall
+#   esbuild          installs its platform binary; tsx and vitest need it
+onlyBuiltDependencies:
+  - "@prisma/engines"
+  - prisma
+  - esbuild
+
+# Left unbuilt deliberately. sharp only accelerates next/image optimisation and
+# Next falls back without it; unrs-resolver ships a prebuilt binary.
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver

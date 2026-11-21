@@ -2,7 +2,7 @@
 
 import { cache } from "react";
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -15,6 +15,7 @@ import type {
   Role,
   SubscriptionPlan,
   SubscriptionStatus,
+  OrgRole,
 } from "@/generated/prisma/enums";
 
 /**
@@ -122,6 +123,90 @@ async function requireElectricianProfileId() {
   }
 
   return { userId: id, profileId };
+}
+
+// ─── Organisation context ───────────────────────────────────────────────────
+
+/**
+ * Name of the cookie holding the organisation the caller is currently acting
+ * as. Absent or unreadable means personal context.
+ */
+const ACTIVE_ORG_COOKIE = "faultfx_active_org";
+
+/** Every role, for reads any member may perform. */
+const ANY_MEMBER: readonly OrgRole[] = ["OWNER", "MANAGER", "MEMBER"];
+/** Roles that may act on the organisation's data, not just see it. */
+const ORG_ADMINS: readonly OrgRole[] = ["OWNER", "MANAGER"];
+
+/**
+ * The caller's membership of one organisation, memoised per request.
+ *
+ * This is the single source of truth for organisation access. Nothing else may
+ * decide whether a caller is "in" an organisation.
+ */
+const getCallerMembership = cache(async (organisationId: string) => {
+  const userId = await getSessionUserId();
+  if (!userId) return null;
+
+  return prisma.membership.findUnique({
+    where: { userId_organisationId: { userId, organisationId } },
+    select: { id: true, role: true, organisationId: true },
+  });
+});
+
+/**
+ * The organisation the caller is acting as, or null for personal context.
+ *
+ * SECURITY: the cookie only *selects* a context — it never grants one. Whatever
+ * it claims is checked against the `memberships` table on every request, so a
+ * forged, stale or copied cookie resolves to null (personal) rather than to
+ * someone else's organisation. That is what makes a client-controlled value
+ * safe to use here at all.
+ */
+const getActiveOrganisationId = cache(async (): Promise<string | null> => {
+  const userId = await getSessionUserId();
+  if (!userId) return null;
+
+  const claimed = (await cookies()).get(ACTIVE_ORG_COOKIE)?.value;
+  if (!claimed) return null;
+
+  const membership = await getCallerMembership(claimed);
+  return membership?.organisationId ?? null;
+});
+
+/**
+ * Asserts the caller holds one of `allowed` in this organisation.
+ *
+ * Platform ADMINs are deliberately NOT given a bypass: being able to run the
+ * platform is not the same as being inside a customer's account, and a silent
+ * bypass here would make every organisation-scoped check untrustworthy. Where
+ * admins genuinely need to see across organisations, the read says so.
+ */
+async function requireOrgRole(organisationId: string, allowed: readonly OrgRole[]) {
+  await requireUserId();
+
+  const membership = await getCallerMembership(organisationId);
+
+  if (!membership) {
+    throw new Error("Forbidden — you are not a member of this organisation.");
+  }
+
+  if (!allowed.includes(membership.role)) {
+    throw new Error(
+      `Forbidden — requires ${allowed.join(" or ")} in this organisation.`
+    );
+  }
+
+  return membership;
+}
+
+/** `Acme Facilities` -> `acme-facilities`. */
+function slugify(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
 }
 
 /** Human-facing reference, e.g. `VF-8A3F21`. */
@@ -238,6 +323,67 @@ export async function syncUserProfile(input: RegisterProfileInput) {
         electricianProfile: { create: profileFields },
       }),
     },
+  });
+}
+
+/**
+ * Creates the relational `users` row for a signed-in auth account that has no
+ * row yet, defaulting to `CLIENT`.
+ *
+ * OAuth and magic-link sign-ins never pass through the register form, so they
+ * never called `syncUserProfile`. The result was a valid Supabase session with
+ * no database row at all: `getCurrentUser()` returned null, the dashboard told
+ * the user to sign in while they were signed in, and they had no role and no
+ * ability to do anything.
+ *
+ * Unlike `syncUserProfile` this one is **not** unauthenticated — it is called
+ * after a successful code exchange, so it can require a session and take the
+ * identity from the token rather than from its arguments. It takes no
+ * arguments at all, which is what makes it safe.
+ *
+ * Create-only by design: an existing row is returned untouched, so signing in
+ * with Google can never rewrite an electrician's or an admin's role.
+ */
+export async function ensureCurrentUserProfile() {
+  const userId = await requireUserId();
+
+  const existing = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true },
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.email) {
+    throw new Error("This account has no email address, so a profile cannot be created.");
+  }
+
+  const meta = user.user_metadata ?? {};
+  const named = [meta.full_name, meta.name].find(
+    (v): v is string => typeof v === "string" && v.trim().length > 0
+  );
+  const avatar = [meta.avatar_url, meta.picture].find(
+    (v): v is string => typeof v === "string" && v.trim().length > 0
+  );
+
+  return prisma.user.create({
+    data: {
+      id: userId,
+      email: user.email,
+      name: named?.trim() || user.email.split("@")[0],
+      avatarUrl: avatar ?? null,
+      // Everyone starts as a client. Becoming an electrician means completing
+      // the NTA flow; becoming an admin happens out of band (scripts/make-admin).
+      role: "CLIENT",
+    },
+    select: { id: true, role: true },
   });
 }
 
@@ -456,6 +602,34 @@ export async function searchElectricians(filters?: {
       user: { select: { name: true, avatarUrl: true } },
     },
     orderBy: { averageRating: { sort: "desc", nulls: "last" } },
+  });
+}
+
+/**
+ * The electricians who can actually be given a job right now.
+ *
+ * Mirrors the two gates createJob enforces — NTA verified and currently
+ * available — so the picker cannot offer someone the server will refuse.
+ * createJob re-checks both regardless; this only avoids a pointless round
+ * trip ending in an error.
+ *
+ * Requires a session but no particular role: a client assigns to their own
+ * fault, staff assign to any. createJob decides which.
+ */
+export async function listAssignableElectricians() {
+  await requireRole(["CLIENT", "ELECTRICIAN", "ADMIN"]);
+
+  return prisma.electricianProfile.findMany({
+    where: { ntaVerified: true, isAvailable: true },
+    select: {
+      id: true,
+      specialisation: true,
+      serviceArea: true,
+      calloutFee: true,
+      averageRating: true,
+      user: { select: { name: true } },
+    },
+    orderBy: [{ averageRating: { sort: "desc", nulls: "last" } }, { createdAt: "asc" }],
   });
 }
 
@@ -685,12 +859,265 @@ export async function verifyElectrician(
   return profile;
 }
 
+// ─── Organisations ──────────────────────────────────────────────────────────
+
+/**
+ * Creates an organisation and makes the caller its first OWNER, in one
+ * transaction — an organisation nobody can administer would be unusable.
+ */
+export async function createOrganisation(input: { name: string; ownerEmail?: string }) {
+  const admin = await requireRole(["ADMIN"]);
+
+  const name = input.name?.trim();
+  if (!name) {
+    throw new Error("An organisation name is required.");
+  }
+
+  const base = slugify(name);
+  if (!base) {
+    throw new Error("That name cannot be turned into a web address. Use some letters or numbers.");
+  }
+
+  // An organisation with no owner cannot be administered and nothing in the
+  // app could repair it, so one is always installed. Normally the customer's
+  // own contact; the creating admin only as a fallback.
+  let ownerId = admin.id;
+  if (input.ownerEmail?.trim()) {
+    const owner = await prisma.user.findFirst({
+      where: { email: { equals: input.ownerEmail.trim().toLowerCase(), mode: "insensitive" } },
+      select: { id: true },
+    });
+    if (!owner) {
+      throw new Error("No FaultFx account uses that email address. Ask them to sign up first.");
+    }
+    ownerId = owner.id;
+  }
+
+  const organisation = await prisma.$transaction(async (tx) => {
+    // Clean slug first; fall back to a suffixed one so two organisations with
+    // similar names do not block each other.
+    let slug = base;
+    if (await tx.organisation.findUnique({ where: { slug }, select: { id: true } })) {
+      slug = `${base}-${crypto.randomUUID().slice(0, 5)}`;
+    }
+
+    return tx.organisation.create({
+      data: {
+        name,
+        slug,
+        memberships: { create: { userId: ownerId, role: "OWNER" } },
+      },
+      select: { id: true, name: true, slug: true },
+    });
+  });
+
+  revalidatePath("/dashboard");
+  return organisation;
+}
+
+/** Every organisation, for platform administration screens. */
+export async function listAllOrganisations() {
+  await requireRole(["ADMIN"]);
+
+  return prisma.organisation.findMany({
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      _count: { select: { memberships: true, locations: true } },
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
+/** The organisations the caller belongs to — what the context switcher offers. */
+export async function listMyOrganisations() {
+  const userId = await requireUserId();
+
+  const memberships = await prisma.membership.findMany({
+    where: { userId },
+    select: {
+      role: true,
+      organisation: { select: { id: true, name: true, slug: true } },
+    },
+    orderBy: { organisation: { name: "asc" } },
+  });
+
+  return memberships.map((m) => ({ ...m.organisation, role: m.role }));
+}
+
+/**
+ * Everything the context switcher needs, in one round trip.
+ *
+ * The navbar reads this from the browser rather than having it passed down
+ * from the root layout, for the same reason it reads the session there: a
+ * cookie read in the root layout would opt every static page into per-request
+ * rendering. Returns an empty list when signed out rather than throwing, since
+ * the navbar renders for everyone.
+ */
+export async function getOrganisationContext() {
+  const userId = await getSessionUserId();
+  if (!userId) {
+    return { organisations: [], activeId: null };
+  }
+
+  const [memberships, activeId] = await Promise.all([
+    prisma.membership.findMany({
+      where: { userId },
+      select: { role: true, organisation: { select: { id: true, name: true } } },
+      orderBy: { organisation: { name: "asc" } },
+    }),
+    getActiveOrganisationId(),
+  ]);
+
+  return {
+    organisations: memberships.map((m) => ({ ...m.organisation, role: m.role })),
+    activeId,
+  };
+}
+
+/** The caller's active context, for rendering the switcher's current state. */
+export async function getActiveOrganisation() {
+  const organisationId = await getActiveOrganisationId();
+  if (!organisationId) return null;
+
+  return prisma.organisation.findUnique({
+    where: { id: organisationId },
+    select: { id: true, name: true, slug: true },
+  });
+}
+
+/**
+ * Switches the caller between personal context and one of their
+ * organisations. Pass null for personal.
+ *
+ * Membership is checked BEFORE the cookie is written, so an unauthorised id
+ * never reaches the cookie at all — and even if one did, every read
+ * re-validates it (see getActiveOrganisationId).
+ */
+export async function setActiveOrganisation(organisationId: string | null) {
+  await requireUserId();
+
+  const store = await cookies();
+
+  if (organisationId === null) {
+    store.delete(ACTIVE_ORG_COOKIE);
+  } else {
+    await requireOrgRole(organisationId, ANY_MEMBER);
+    store.set(ACTIVE_ORG_COOKIE, organisationId, {
+      httpOnly: true, // only the server ever reads this
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365,
+    });
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/fault-log");
+}
+
+/**
+ * Adds an existing FaultFx account to an organisation.
+ *
+ * Takes an email rather than a user id so an owner can add a colleague they
+ * know by address, and deliberately does NOT create accounts: inviting someone
+ * who has not signed up would mean this endpoint could mint users.
+ */
+export async function addOrganisationMember(input: {
+  organisationId: string;
+  email: string;
+  role?: OrgRole;
+}) {
+  await requireOrgRole(input.organisationId, ORG_ADMINS);
+
+  const email = input.email?.trim().toLowerCase();
+  if (!email) {
+    throw new Error("An email address is required.");
+  }
+
+  // Only OWNERs may create other OWNERs; a MANAGER cannot promote past itself.
+  const role = input.role ?? "MEMBER";
+  if (role === "OWNER") {
+    await requireOrgRole(input.organisationId, ["OWNER"]);
+  }
+
+  const user = await prisma.user.findFirst({
+    where: { email: { equals: email, mode: "insensitive" } },
+    select: { id: true },
+  });
+
+  if (!user) {
+    throw new Error("No FaultFx account uses that email address. Ask them to sign up first.");
+  }
+
+  const membership = await prisma.membership.upsert({
+    where: {
+      userId_organisationId: { userId: user.id, organisationId: input.organisationId },
+    },
+    create: { userId: user.id, organisationId: input.organisationId, role },
+    update: { role },
+    select: { id: true, role: true },
+  });
+
+  revalidatePath("/dashboard");
+  return membership;
+}
+
+/** The organisation's people. Any member may see who they work with. */
+export async function listOrganisationMembers(organisationId: string) {
+  await requireOrgRole(organisationId, ANY_MEMBER);
+
+  return prisma.membership.findMany({
+    where: { organisationId },
+    select: {
+      id: true,
+      role: true,
+      createdAt: true,
+      user: { select: { id: true, name: true, email: true } },
+    },
+    orderBy: [{ role: "asc" }, { createdAt: "asc" }],
+  });
+}
+
+/** Removes someone from an organisation. Owners and managers only. */
+export async function removeOrganisationMember(input: {
+  organisationId: string;
+  membershipId: string;
+}) {
+  await requireOrgRole(input.organisationId, ORG_ADMINS);
+
+  const target = await prisma.membership.findUnique({
+    where: { id: input.membershipId },
+    select: { id: true, role: true, organisationId: true },
+  });
+
+  if (!target || target.organisationId !== input.organisationId) {
+    throw new Error("That membership does not belong to this organisation.");
+  }
+
+  // Refuse to remove the last owner: an organisation with no owner cannot be
+  // administered, and nothing else in the app could repair it.
+  if (target.role === "OWNER") {
+    const owners = await prisma.membership.count({
+      where: { organisationId: input.organisationId, role: "OWNER" },
+    });
+    if (owners <= 1) {
+      throw new Error("This is the organisation's only owner. Make someone else an owner first.");
+    }
+  }
+
+  await prisma.membership.delete({ where: { id: target.id } });
+  revalidatePath("/dashboard");
+}
+
 // ─── Locations (QR-coded rooms) ─────────────────────────────────────────────
 
 export async function createLocation(input: {
   building: string;
   room: string;
   description?: string;
+  organisationId?: string | null;
 }) {
   await requireRole(["ADMIN"]);
   const origin = await originUrl();
@@ -703,6 +1130,9 @@ export async function createLocation(input: {
         building: input.building,
         room: input.room,
         description: input.description || null,
+        // Ownership is what routes a fault to the right people; see
+        // createFaultReport.
+        organisationId: input.organisationId || null,
       },
     });
 
@@ -738,12 +1168,25 @@ export async function getAllLocations() {
 }
 
 /**
- * Public, and deliberately narrower than `getAllLocations`: anyone reporting a
- * fault has to be able to name their room without an account, but they have no
- * business seeing qrUrl or internal descriptions. Returns identifiers only.
+ * The rooms the caller may pick from when reporting — their active
+ * organisation's, and nothing else.
+ *
+ * This used to return EVERY room on the platform to anybody, signed in or not,
+ * which both showed an FNB employee other customers' buildings and let anyone
+ * enumerate every customer's sites. Narrower than `getAllLocations` still: no
+ * `qrUrl`, no internal descriptions.
+ *
+ * Returns an empty list rather than throwing when there is no organisation
+ * context, because "you have no rooms to choose from" is a state the reporting
+ * page renders rather than an error. Someone with no organisation reports by
+ * scanning a QR code or by giving their own address instead.
  */
 export async function listLocationsForReporting() {
+  const organisationId = await getActiveOrganisationId();
+  if (!organisationId) return [];
+
   return prisma.location.findMany({
+    where: { organisationId },
     select: { id: true, building: true, room: true },
     orderBy: [{ building: "asc" }, { room: "asc" }],
   });
@@ -751,7 +1194,12 @@ export async function listLocationsForReporting() {
 
 export async function updateLocation(
   locationId: string,
-  input: { building?: string; room?: string; description?: string | null }
+  input: {
+    building?: string;
+    room?: string;
+    description?: string | null;
+    organisationId?: string | null;
+  }
 ) {
   await requireRole(["ADMIN"]);
 
@@ -783,25 +1231,72 @@ export async function createFaultReport(input: {
   priority?: FaultPriority;
   locationId?: string;
   reporterName?: string;
+  address?: string;
   photoUrls?: string[];
 }) {
   if (!input.description?.trim()) {
     throw new Error("A fault description is required.");
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await getSessionUserId();
+  const locationId = input.locationId || null;
+  const address = input.address?.trim() || null;
+
+  /**
+   * There are exactly three ways to report a fault, and nothing else is
+   * allowed through:
+   *
+   *  1. A registered room, by id. Either picked from the dropdown of your
+   *     organisation's rooms, or reached by scanning the QR code on the wall.
+   *     The physical sticker IS the authorisation for the anonymous case —
+   *     a visitor in an FNB stairwell should be able to report a dead socket
+   *     without an account — and location ids are unguessable cuids.
+   *  2. Your own address, signed in, with no registered room. The homeowner
+   *     booking an electrician for their house.
+   *  3. Nothing — which is refused. An anonymous report with no location and
+   *     no address names no place at all and could never be acted on.
+   */
+  if (!locationId) {
+    if (!userId) {
+      throw new Error(
+        "Scan the QR code in the room, or sign in, to report a fault."
+      );
+    }
+    if (!address) {
+      throw new Error("Tell us where the fault is — pick a room or give an address.");
+    }
+  }
+
+  /**
+   * Which organisation owns this fault.
+   *
+   * The BUILDING decides first: a fault in an FNB stairwell is FNB's whoever
+   * walked past and reported it, including an anonymous QR scan. Only when
+   * there is no registered room does it fall back to the reporter's active
+   * context — and a personal report has none, so it stays unowned.
+   */
+  const owningOrg = locationId
+    ? (
+        await prisma.location.findUnique({
+          where: { id: locationId },
+          select: { organisationId: true },
+        })
+      )?.organisationId ?? null
+    : null;
+
+  const organisationId = owningOrg ?? (userId ? await getActiveOrganisationId() : null);
 
   const report = await prisma.faultReport.create({
     data: {
       ref: makeRef("VF"),
       description: input.description.trim(),
       priority: input.priority ?? "MEDIUM",
-      locationId: input.locationId || null,
-      reporterId: user?.id ?? null,
+      locationId,
+      reporterId: userId,
       reporterName: input.reporterName?.trim() || null,
+      // Only meaningful without a registered room; a room already says where.
+      address: locationId ? null : address,
+      organisationId,
       photoUrls: input.photoUrls ?? [],
     },
   });
@@ -810,23 +1305,55 @@ export async function createFaultReport(input: {
   return report;
 }
 
+/**
+ * The faults a caller may see, as a Prisma filter.
+ *
+ * Staff (electricians triage, admins run the platform) see everything, which
+ * is the pre-existing behaviour. A client sees either their own personal
+ * faults or everything belonging to the organisation they are acting as —
+ * which is the point of organisations: colleagues can see and act on each
+ * other's reports instead of each fault being private to whoever logged it.
+ *
+ * Personal context deliberately excludes organisation faults rather than
+ * mixing them in, so "personal" means personal.
+ */
+async function visibleFaultFilter(caller: { id: string; role: Role }) {
+  if (caller.role !== "CLIENT") {
+    return {};
+  }
+
+  const organisationId = await getActiveOrganisationId();
+
+  return organisationId
+    ? { organisationId }
+    : { reporterId: caller.id, organisationId: null };
+}
+
 /** Public lookup by reference — how a reporter tracks a fault they logged. */
 export async function getFaultReportByRef(ref: string) {
   return prisma.faultReport.findUnique({
     where: { ref },
-    include: { location: true, job: true },
+    include: { location: true, jobs: { orderBy: { createdAt: "desc" } } },
   });
 }
 
+/**
+ * A single fault. Previously any signed-in user could read any fault by id;
+ * it is now scoped the same way the list is, so a client sees their own
+ * personal faults and their organisation's, and nobody else's.
+ */
 export async function getFaultReport(id: string) {
-  await requireUserId();
+  const caller = await requireRole(["CLIENT", "ELECTRICIAN", "ADMIN"]);
 
-  return prisma.faultReport.findUnique({
-    where: { id },
+  return prisma.faultReport.findFirst({
+    where: { id, ...(await visibleFaultFilter(caller)) },
     include: {
       location: true,
       reporter: { select: { id: true, name: true, email: true } },
-      job: { include: { electrician: { include: { user: { select: { name: true } } } } } },
+      jobs: {
+        include: { electrician: { include: { user: { select: { name: true } } } } },
+        orderBy: { createdAt: "desc" },
+      },
     },
   });
 }
@@ -845,12 +1372,12 @@ export async function listFaultReports(filters?: {
 
   return prisma.faultReport.findMany({
     where: {
-      ...(caller.role === "CLIENT" && { reporterId: caller.id }),
+      ...(await visibleFaultFilter(caller)),
       ...(filters?.status && { status: filters.status }),
       ...(filters?.priority && { priority: filters.priority }),
       ...(filters?.locationId && { locationId: filters.locationId }),
     },
-    include: { location: true, job: { select: { id: true, status: true } } },
+    include: { location: true, jobs: { select: { id: true, status: true } } },
     orderBy: { createdAt: "desc" },
     take: filters?.take ?? 100,
   });
@@ -870,10 +1397,22 @@ export async function updateFaultReport(
   if (caller.role === "CLIENT") {
     const report = await prisma.faultReport.findUnique({
       where: { id },
-      select: { reporterId: true },
+      select: { reporterId: true, organisationId: true },
     });
 
-    if (report?.reporterId !== caller.id) {
+    // The reporter may always edit their own. Otherwise an organisation fault
+    // may be edited by that organisation's owners and managers — a facilities
+    // manager correcting a colleague's report is the normal case. Plain
+    // members can see organisation faults but not rewrite them.
+    const isReporter = report?.reporterId === caller.id;
+    const manages =
+      !isReporter &&
+      report?.organisationId != null &&
+      ORG_ADMINS.includes(
+        (await getCallerMembership(report.organisationId))?.role ?? ("MEMBER" as OrgRole)
+      );
+
+    if (!isReporter && !manages) {
       throw new Error("Forbidden — you can only edit faults you reported.");
     }
 
@@ -914,9 +1453,13 @@ export async function listBookableFaults() {
 
   return prisma.faultReport.findMany({
     where: {
-      job: null,
+      // A cancelled job leaves the fault assignable, so only a LIVE job
+      // disqualifies it.
+      jobs: { none: { status: { not: "CANCELLED" } } },
+      // Anonymous reports stay out: createJob rejects them until a client
+      // claims them, so offering one would only produce an error on submit.
       ...(caller.role === "CLIENT"
-        ? { reporterId: caller.id }
+        ? await visibleFaultFilter(caller)
         : { reporterId: { not: null } }),
     },
     select: {
@@ -947,13 +1490,18 @@ export async function createJob(input: {
 
   const fault = await prisma.faultReport.findUnique({
     where: { id: input.faultId },
-    select: { id: true, reporterId: true, job: { select: { id: true } } },
+    select: {
+      id: true,
+      reporterId: true,
+      // Cancelled attempts are history, not a blocker.
+      jobs: { where: { status: { not: "CANCELLED" } }, select: { id: true } },
+    },
   });
 
   if (!fault) {
     throw new Error("Fault report not found.");
   }
-  if (fault.job) {
+  if (fault.jobs.length > 0) {
     throw new Error("This fault already has a job assigned.");
   }
   if (caller.role === "CLIENT" && fault.reporterId !== caller.id) {
@@ -1077,8 +1625,31 @@ export async function listJobs(filters?: { status?: JobStatus; take?: number }) 
  * job's timestamps in step. Only the assigned electrician (or an admin) may
  * progress work; the client may only cancel.
  */
+/**
+ * The legal job lifecycle. A job is accepted, started, then completed; it can
+ * be abandoned at any point before completion. Both end states are terminal.
+ *
+ * Enforced on the server rather than only by which buttons the UI renders:
+ * this action is a public POST endpoint, so hiding a control protects nothing.
+ * Without this a job could jump straight from PENDING to COMPLETED, or a
+ * finished job could be dragged back into progress.
+ */
+const JOB_TRANSITIONS: Record<JobStatus, readonly JobStatus[]> = {
+  PENDING: ["ACCEPTED", "CANCELLED"],
+  ACCEPTED: ["IN_PROGRESS", "CANCELLED"],
+  IN_PROGRESS: ["COMPLETED", "CANCELLED"],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
+/** `IN_PROGRESS` -> `in progress`, for error messages people have to read. */
+function readableStatus(status: JobStatus) {
+  return status.toLowerCase().replace("_", " ");
+}
+
 export async function updateJobStatus(jobId: string, status: JobStatus) {
-  const { caller, isClient, isElectrician } = await requireJobAccess(jobId);
+  const { caller, job: current, isClient, isElectrician } =
+    await requireJobAccess(jobId);
 
   if (status === "CANCELLED") {
     if (!isClient && !isElectrician && caller.role !== "ADMIN") {
@@ -1086,6 +1657,21 @@ export async function updateJobStatus(jobId: string, status: JobStatus) {
     }
   } else if (!isElectrician && caller.role !== "ADMIN") {
     throw new Error("Forbidden — only the assigned electrician can progress this job.");
+  }
+
+  // Idempotent: re-sending the status a job already has is a no-op rather than
+  // an error, so a double-clicked button does not surface a scary message.
+  if (current.status === status) {
+    return current;
+  }
+
+  if (!JOB_TRANSITIONS[current.status].includes(status)) {
+    const allowed = JOB_TRANSITIONS[current.status];
+    throw new Error(
+      allowed.length === 0
+        ? `This job is ${readableStatus(current.status)} and can no longer change.`
+        : `A ${readableStatus(current.status)} job cannot move to ${readableStatus(status)} — only to ${allowed.map(readableStatus).join(" or ")}.`
+    );
   }
 
   const faultStatus: Record<JobStatus, FaultStatus> = {

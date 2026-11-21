@@ -10,19 +10,30 @@ export type ManagedLocation = {
   room: string;
   description: string | null;
   qrUrl: string | null;
+  organisationId: string | null;
 };
+
+type OrgOption = { id: string; name: string };
 
 export function QrManager({
   locations,
+  organisations,
   defaultBaseUrl,
 }: {
   locations: ManagedLocation[];
+  organisations: OrgOption[];
   defaultBaseUrl: string;
 }) {
   const router = useRouter();
   const [newBuilding, setNewBuilding] = useState("");
   const [newRoom, setNewRoom] = useState("");
   const [newDesc, setNewDesc] = useState("");
+  /**
+   * Which customer owns the room. This is what makes the room appear in that
+   * organisation's reporting dropdown, and what attributes its faults — so an
+   * unowned room is only reachable by physically scanning its QR code.
+   */
+  const [newOrgId, setNewOrgId] = useState("");
   const [generated, setGenerated] = useState<{ dataUrl: string; label: string } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -63,10 +74,12 @@ export function QrManager({
         building: newBuilding.trim(),
         room: newRoom.trim(),
         description: newDesc.trim() || undefined,
+        organisationId: newOrgId || null,
       });
       setNewBuilding("");
       setNewRoom("");
       setNewDesc("");
+      setNewOrgId("");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add the location.");
@@ -140,6 +153,25 @@ export function QrManager({
                 </label>
                 <input id="qr-desc" className="input" placeholder="e.g. Second floor, east wing" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} />
               </div>
+              <div>
+                <label htmlFor="qr-org" className="label">Belongs to</label>
+                <select
+                  id="qr-org"
+                  className="input"
+                  value={newOrgId}
+                  onChange={(e) => setNewOrgId(e.target.value)}
+                >
+                  <option value="">No organisation — QR scan only</option>
+                  {organisations.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
+                <p style={{ fontSize: "0.75rem", color: "var(--text-subtle)", marginTop: "0.375rem" }}>
+                  An owned room appears in that organisation&apos;s reporting dropdown and its
+                  faults are attributed to them. An unowned room can only be reported by
+                  scanning its code.
+                </p>
+              </div>
               <button id="qr-add-location-btn" type="button" onClick={addLocation} disabled={saving} className="btn-primary" style={{ justifyContent: "center" }}>
                 {saving ? "Saving…" : "+ Add Location"}
               </button>
@@ -175,7 +207,19 @@ export function QrManager({
                 }}
               >
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>{loc.building} — {loc.room}</div>
+                  <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>
+                    {loc.building} — {loc.room}
+                    <span
+                      style={{
+                        marginLeft: "0.5rem",
+                        fontSize: "0.7rem",
+                        fontWeight: 500,
+                        color: loc.organisationId ? "var(--teal-300)" : "var(--text-subtle)",
+                      }}
+                    >
+                      {organisations.find((o) => o.id === loc.organisationId)?.name ?? "unowned"}
+                    </span>
+                  </div>
                   {loc.description && (
                     <div style={{ fontSize: "0.775rem", color: "var(--text-muted)", marginTop: "0.125rem" }}>{loc.description}</div>
                   )}

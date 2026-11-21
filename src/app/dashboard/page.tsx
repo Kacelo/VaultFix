@@ -4,12 +4,17 @@ import {
   getMyVerificationStatus,
   listBookableFaults,
   listFaultReports,
+  listAllOrganisations,
   listJobs,
+  listMyOrganisations,
   listPendingVerifications,
   listReceipts,
 } from "@/lib/supabase/actions";
 import { AccessNotice } from "@/components/AccessNotice";
 import { VerifyButtons } from "./VerifyButtons";
+import { JobStatusButtons } from "./JobStatusButtons";
+import { AssignFaultButton } from "./AssignFaultButton";
+import { OrganisationsPanel } from "./OrganisationsPanel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,7 +22,6 @@ import {
   Card,
   CardAction,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -166,10 +170,11 @@ function Money({ amount }: { amount: number }) {
 /* ── Client ──────────────────────────────────────────────────────────────── */
 
 async function ClientDashboard() {
-  const [faults, jobs, receipts] = await Promise.all([
+  const [faults, jobs, receipts, organisations] = await Promise.all([
     listFaultReports(),
     listJobs(),
     listReceipts(),
+    listMyOrganisations(),
   ]);
 
   const openFaults = faults.filter((f) => f.status === "OPEN");
@@ -236,7 +241,8 @@ async function ClientDashboard() {
                   <TableHead>Fault</TableHead>
                   <TableHead>Where</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Priority</TableHead>
+                  <TableHead>Priority</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -253,14 +259,27 @@ async function ClientDashboard() {
                     <TableCell>
                       <StatusBadge value={f.status} />
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell>
                       <PriorityBadge value={f.priority} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {/* A cancelled job leaves the fault assignable again, so
+                          only a live one means it is already someone's. */}
+                      {f.jobs.some((j) => j.status !== "CANCELLED") ? (
+                        <span className="text-xs text-muted-foreground">assigned</span>
+                      ) : (
+                        <AssignFaultButton faultId={f.id} />
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           )}
+        </Section>
+
+        <Section title="Organisations">
+          <OrganisationsPanel organisations={organisations} />
         </Section>
 
         <Section title="Your jobs">
@@ -379,7 +398,8 @@ async function ElectricianDashboard() {
                   <TableHead>Fault</TableHead>
                   <TableHead>Client</TableHead>
                   <TableHead>Raised</TableHead>
-                  <TableHead className="text-right">Status</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -394,8 +414,11 @@ async function ElectricianDashboard() {
                     <TableCell className="text-muted-foreground">
                       {formatDate(j.createdAt)}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell>
                       <StatusBadge value={j.status} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <JobStatusButtons jobId={j.id} status={j.status} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -436,10 +459,11 @@ async function ElectricianDashboard() {
 /* ── Admin ───────────────────────────────────────────────────────────────── */
 
 async function AdminDashboard() {
-  const [pending, unassigned, jobs] = await Promise.all([
+  const [pending, unassigned, jobs, organisations] = await Promise.all([
     listPendingVerifications(),
     listBookableFaults(),
     listJobs(),
+    listAllOrganisations(),
   ]);
 
   const activeJobs = jobs.filter((j) => isActiveJob(j.status));
@@ -450,12 +474,60 @@ async function AdminDashboard() {
         <StatCard value={pending.length} label="AWAITING VERIFICATION" />
         <StatCard value={unassigned.length} label="UNASSIGNED FAULTS" />
         <StatCard value={activeJobs.length} label="ACTIVE JOBS" />
-        <StatCard value="QR" label="MANAGE LOCATIONS" href="/admin/qr-codes" />
+        <StatCard
+          value={organisations.length}
+          label="ORGANISATIONS"
+          href="/admin/qr-codes"
+        />
       </div>
 
       <div className="flex flex-col gap-5">
-        {/* First, because everyone in this queue is blocked from working until
-            an admin acts. Oldest first. */}
+        {/* Where a customer starts: without an organisation and its rooms,
+            their staff have nothing to report against. */}
+        <Section
+          title="Customers"
+          action={{ href: "/admin/qr-codes", label: "Add organisation or rooms" }}
+        >
+          {organisations.length === 0 ? (
+            <Empty>
+              No organisations yet. Register a customer, then add their rooms and print the
+              QR codes — their staff can then report faults against those rooms, and see
+              each other&apos;s reports.
+            </Empty>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Organisation</TableHead>
+                  <TableHead>Rooms</TableHead>
+                  <TableHead className="text-right">People</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {organisations.map((org) => (
+                  <TableRow key={org.id}>
+                    <TableCell className="font-medium">{org.name}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {org._count.locations === 0 ? (
+                        <span className="text-[var(--amber-400)]">
+                          no rooms yet
+                        </span>
+                      ) : (
+                        org._count.locations
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground">
+                      {org._count.memberships}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Section>
+
+        {/* Everyone in this queue is blocked from working until an admin acts.
+            Oldest first. */}
         <Section title="Verification queue">
           {pending.length === 0 ? (
             <Empty>
@@ -515,7 +587,8 @@ async function AdminDashboard() {
                   <TableHead>Fault</TableHead>
                   <TableHead>Where</TableHead>
                   <TableHead>Logged</TableHead>
-                  <TableHead className="text-right">Priority</TableHead>
+                  <TableHead>Priority</TableHead>
+                  <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -532,8 +605,11 @@ async function AdminDashboard() {
                     <TableCell className="text-muted-foreground">
                       {formatDate(f.createdAt)}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell>
                       <PriorityBadge value={f.priority} />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <AssignFaultButton faultId={f.id} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -584,9 +660,23 @@ async function AdminDashboard() {
 /* ── Shell ───────────────────────────────────────────────────────────────── */
 
 export default async function DashboardPage() {
-  // proxy.ts redirects signed-out callers to /login before this runs, so this
-  // is a backstop rather than the primary gate.
-  const user = await getCurrentUser().catch(() => null);
+  /**
+   * proxy.ts redirects signed-out callers to /login before this runs, so a
+   * null user here is a backstop rather than the primary gate.
+   *
+   * Signed-out and "the lookup failed" are kept apart deliberately. They were
+   * once the same `.catch(() => null)`, which meant a database outage rendered
+   * "Sign in to view your dashboard" at someone who was perfectly well signed
+   * in — a wrong answer that also sent them looking in the wrong place.
+   */
+  let user: Awaited<ReturnType<typeof getCurrentUser>> = null;
+  let lookupFailed = false;
+
+  try {
+    user = await getCurrentUser();
+  } catch {
+    lookupFailed = true;
+  }
 
   return (
     // The hero gradient stays an inline style: it is a CSS gradient behind a
@@ -602,7 +692,13 @@ export default async function DashboardPage() {
       />
 
       <div className="container relative">
-        {!user ? (
+        {lookupFailed ? (
+          <AccessNotice
+            title="We can't reach your account right now"
+            message="You're signed in, but the database didn't respond, so there's nothing to show yet. This is on our side — please try again shortly."
+            showLogin={false}
+          />
+        ) : !user ? (
           <AccessNotice
             title="Sign in to view your dashboard"
             message="Your faults, call-outs and receipts live behind your account."

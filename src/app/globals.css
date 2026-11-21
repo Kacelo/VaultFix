@@ -103,42 +103,59 @@
   --sidebar-ring:               var(--teal-400);
 }
 
-/* ─── Base Reset ─────────────────────────────────────────────── */
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/*
+ * Element defaults live in @layer base so Tailwind's utilities can override
+ * them.
+ *
+ * This matters more than it looks: unlayered CSS beats LAYERED CSS outright,
+ * regardless of specificity. While these rules sat outside a layer, the
+ * `* { margin: 0; padding: 0 }` reset silently defeated every Tailwind spacing
+ * utility — p-6, px-(--card-spacing), mt-1 — so shadcn's cards and anything
+ * else styled with classes rendered with no padding at all. The older pages
+ * escaped it only because they use inline styles, which beat everything.
+ *
+ * The component classes below (.glass, .btn-*, .input, .badge-*) are
+ * deliberately left UNLAYERED so they still win over utilities: .glass has to
+ * beat shadcn's bg-card for cards to keep the frosted look.
+ */
+@layer base {
+  /* ─── Base Reset ─────────────────────────────────────────────── */
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    line-height: 1.6;
+  }
+
+  /* ─── Typography ─────────────────────────────────────────────── */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    line-height: 1.2;
+    color: var(--text);
+  }
+
+  /* ─── Global Link ────────────────────────────────────────────── */
+  a { color: inherit; text-decoration: none; }
+
+  /* ─── Scrollbar ──────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--teal-800); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--teal-700); }
 }
-
-html {
-  scroll-behavior: smooth;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-body {
-  font-family: var(--font-sans);
-  background: var(--bg);
-  color: var(--text);
-  min-height: 100dvh;
-  line-height: 1.6;
-}
-
-/* ─── Typography ─────────────────────────────────────────────── */
-h1, h2, h3, h4, h5, h6 {
-  font-family: var(--font-display);
-  line-height: 1.2;
-  color: var(--text);
-}
-
-/* ─── Global Link ────────────────────────────────────────────── */
-a { color: inherit; text-decoration: none; }
-
-/* ─── Scrollbar ──────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--teal-800); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--teal-700); }
 
 /* ─── Utility Classes ────────────────────────────────────────── */
 
